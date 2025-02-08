@@ -1,54 +1,54 @@
-import Button from '@app/components/Common/Button';
-import ConfirmButton from '@app/components/Common/ConfirmButton';
-import LoadingSpinner from '@app/components/Common/LoadingSpinner';
-import PageTitle from '@app/components/Common/PageTitle';
-import Tooltip from '@app/components/Common/Tooltip';
-import { sliderTitles } from '@app/components/Discover/constants';
-import CreateSlider from '@app/components/Discover/CreateSlider';
-import DiscoverSliderEdit from '@app/components/Discover/DiscoverSliderEdit';
-import MovieGenreSlider from '@app/components/Discover/MovieGenreSlider';
-import NetworkSlider from '@app/components/Discover/NetworkSlider';
-import PlexWatchlistSlider from '@app/components/Discover/PlexWatchlistSlider';
-import RecentlyAddedSlider from '@app/components/Discover/RecentlyAddedSlider';
-import RecentRequestsSlider from '@app/components/Discover/RecentRequestsSlider';
-import StudioSlider from '@app/components/Discover/StudioSlider';
-import TvGenreSlider from '@app/components/Discover/TvGenreSlider';
-import MediaSlider from '@app/components/MediaSlider';
-import { encodeURIExtraParams } from '@app/hooks/useDiscover';
-import { Permission, useUser } from '@app/hooks/useUser';
-import globalMessages from '@app/i18n/globalMessages';
-import { Transition } from '@headlessui/react';
+import Button from "@app/components/Common/Button";
+import ConfirmButton from "@app/components/Common/ConfirmButton";
+import LoadingSpinner from "@app/components/Common/LoadingSpinner";
+import PageTitle from "@app/components/Common/PageTitle";
+import Tooltip from "@app/components/Common/Tooltip";
+import { sliderTitles } from "@app/components/Discover/constants";
+import CreateSlider from "@app/components/Discover/CreateSlider";
+import DiscoverSliderEdit from "@app/components/Discover/DiscoverSliderEdit";
+import MovieGenreSlider from "@app/components/Discover/MovieGenreSlider";
+import NetworkSlider from "@app/components/Discover/NetworkSlider";
+import PlexWatchlistSlider from "@app/components/Discover/PlexWatchlistSlider";
+import RecentlyAddedSlider from "@app/components/Discover/RecentlyAddedSlider";
+import RecentRequestsSlider from "@app/components/Discover/RecentRequestsSlider";
+import StudioSlider from "@app/components/Discover/StudioSlider";
+import TvGenreSlider from "@app/components/Discover/TvGenreSlider";
+import MediaSlider from "@app/components/MediaSlider";
+import { encodeURIExtraParams } from "@app/hooks/useDiscover";
+import { Permission, useUser } from "@app/hooks/useUser";
+import globalMessages from "@app/i18n/globalMessages";
+import { Transition } from "@headlessui/react";
 import {
   ArrowDownOnSquareIcon,
   ArrowPathIcon,
   ArrowUturnLeftIcon,
   PencilIcon,
   PlusIcon,
-} from '@heroicons/react/24/solid';
-import { DiscoverSliderType } from '@server/constants/discover';
-import type DiscoverSlider from '@server/entity/DiscoverSlider';
-import axios from 'axios';
-import { useEffect, useState } from 'react';
-import { defineMessages, useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
-import useSWR from 'swr';
+} from "@heroicons/react/24/solid";
+import { DiscoverSliderType } from "@server/constants/discover";
+import type DiscoverSlider from "@server/entity/DiscoverSlider";
+import axios from "axios";
+import { useEffect, useState } from "react";
+import { defineMessages, useIntl } from "react-intl";
+import { useToasts } from "react-toast-notifications";
+import useSWR from "swr";
 
 const messages = defineMessages({
-  discover: 'Discover',
+  discover: "Discover",
   emptywatchlist:
-    'Media added to your <PlexWatchlistSupportLink>Plex Watchlist</PlexWatchlistSupportLink> will appear here.',
-  resettodefault: 'Reset to Default',
+    "Media added to your <PlexWatchlistSupportLink>Plex Watchlist</PlexWatchlistSupportLink> will appear here.",
+  resettodefault: "Reset to Default",
   resetwarning:
-    'Reset all sliders to default. This will also delete any custom sliders!',
-  updatesuccess: 'Updated discover customization settings.',
+    "Reset all sliders to default. This will also delete any custom sliders!",
+  updatesuccess: "Updated discover customization settings.",
   updatefailed:
-    'Something went wrong updating the discover customization settings.',
-  resetsuccess: 'Sucessfully reset discover customization settings.',
+    "Something went wrong updating the discover customization settings.",
+  resetsuccess: "Sucessfully reset discover customization settings.",
   resetfailed:
-    'Something went wrong resetting the discover customization settings.',
-  customizediscover: 'Customize Discover',
-  stopediting: 'Stop Editing',
-  createnewslider: 'Create New Slider',
+    "Something went wrong resetting the discover customization settings.",
+  customizediscover: "Customize Discover",
+  stopediting: "Stop Editing",
+  createnewslider: "Create New Slider",
 });
 
 const Discover = () => {
@@ -59,7 +59,7 @@ const Discover = () => {
     data: discoverData,
     error: discoverError,
     mutate,
-  } = useSWR<DiscoverSlider[]>('/api/v1/settings/discover');
+  } = useSWR<DiscoverSlider[]>("/api/v1/settings/discover");
   const [sliders, setSliders] = useState<Partial<DiscoverSlider>[]>([]);
   const [isEditing, setIsEditing] = useState(false);
 
@@ -75,17 +75,17 @@ const Discover = () => {
 
   const updateSliders = async () => {
     try {
-      await axios.post('/api/v1/settings/discover', sliders);
+      await axios.post("/api/v1/settings/discover", sliders);
 
       addToast(intl.formatMessage(messages.updatesuccess), {
-        appearance: 'success',
+        appearance: "success",
         autoDismiss: true,
       });
       setIsEditing(false);
       mutate();
     } catch (e) {
       addToast(intl.formatMessage(messages.updatefailed), {
-        appearance: 'error',
+        appearance: "error",
         autoDismiss: true,
       });
     }
@@ -93,17 +93,17 @@ const Discover = () => {
 
   const resetSliders = async () => {
     try {
-      await axios.get('/api/v1/settings/discover/reset');
+      await axios.get("/api/v1/settings/discover/reset");
 
       addToast(intl.formatMessage(messages.resetsuccess), {
-        appearance: 'success',
+        appearance: "success",
         autoDismiss: true,
       });
       setIsEditing(false);
       mutate();
     } catch (e) {
       addToast(intl.formatMessage(messages.resetfailed), {
-        appearance: 'error',
+        appearance: "error",
         autoDismiss: true,
       });
     }
@@ -113,7 +113,7 @@ const Discover = () => {
   const offset = now.getTimezoneOffset();
   const upcomingDate = new Date(now.getTime() - offset * 60 * 1000)
     .toISOString()
-    .split('T')[0];
+    .split("T")[0];
 
   if (!discoverData && !discoverError) {
     return <LoadingSpinner />;
@@ -122,6 +122,34 @@ const Discover = () => {
   return (
     <>
       <PageTitle title={intl.formatMessage(messages.discover)} />
+      <div className="mb-8 text-center">
+        <h1 className="text-3xl font-bold text-gray-100">
+          Welcome to Chanflix...
+        </h1>
+        <p className="mt-2 text-gray-400">
+          Search, scroll, or manage media content
+        </p>
+      </div>
+
+      <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="rounded-lg border border-gray-700 bg-gray-800 p-6">
+          <h2 className="mb-4 text-xl font-semibold text-gray-100">
+            Popular Content
+          </h2>
+          <div className="flex h-32 items-center justify-center text-gray-400">
+            Future content will go here
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-700 bg-gray-800 p-6">
+          <h2 className="mb-4 text-xl font-semibold text-gray-100">
+            Recent Activity
+          </h2>
+          <div className="flex h-32 items-center justify-center text-gray-400">
+            Future content will go here
+          </div>
+        </div>
+      </div>
       {hasPermission(Permission.ADMIN) && (
         <>
           {isEditing && (
@@ -286,12 +314,12 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url="/api/v1/discover/movies"
                 extraParams={
                   slider.data
                     ? `keywords=${encodeURIExtraParams(slider.data)}`
-                    : ''
+                    : ""
                 }
                 linkUrl={`/discover/movies?keywords=${slider.data}`}
               />
@@ -301,12 +329,12 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url="/api/v1/discover/tv"
                 extraParams={
                   slider.data
                     ? `keywords=${encodeURIExtraParams(slider.data)}`
-                    : ''
+                    : ""
                 }
                 linkUrl={`/discover/tv?keywords=${slider.data}`}
               />
@@ -316,7 +344,7 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url={`/api/v1/discover/movies`}
                 extraParams={`genre=${slider.data}`}
                 linkUrl={`/discover/movies?genre=${slider.data}`}
@@ -327,7 +355,7 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url={`/api/v1/discover/tv`}
                 extraParams={`genre=${slider.data}`}
                 linkUrl={`/discover/tv?genre=${slider.data}`}
@@ -338,7 +366,7 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url={`/api/v1/discover/movies/studio/${slider.data}`}
                 linkUrl={`/discover/movies/studio/${slider.data}`}
               />
@@ -348,7 +376,7 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url={`/api/v1/discover/tv/network/${slider.data}`}
                 linkUrl={`/discover/tv/network/${slider.data}`}
               />
@@ -358,7 +386,7 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url="/api/v1/search"
                 extraParams={`query=${slider.data}`}
                 linkUrl={`/search?query=${slider.data}`}
@@ -369,14 +397,14 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url="/api/v1/discover/movies"
                 extraParams={`watchRegion=${
-                  slider.data?.split(',')[0]
-                }&watchProviders=${slider.data?.split(',')[1]}`}
+                  slider.data?.split(",")[0]
+                }&watchProviders=${slider.data?.split(",")[1]}`}
                 linkUrl={`/discover/movies?watchRegion=${
-                  slider.data?.split(',')[0]
-                }&watchProviders=${slider.data?.split(',')[1]}`}
+                  slider.data?.split(",")[0]
+                }&watchProviders=${slider.data?.split(",")[1]}`}
               />
             );
             break;
@@ -384,14 +412,14 @@ const Discover = () => {
             sliderComponent = (
               <MediaSlider
                 sliderKey={`custom-slider-${slider.id}`}
-                title={slider.title ?? ''}
+                title={slider.title ?? ""}
                 url="/api/v1/discover/tv"
                 extraParams={`watchRegion=${
-                  slider.data?.split(',')[0]
-                }&watchProviders=${slider.data?.split(',')[1]}`}
+                  slider.data?.split(",")[0]
+                }&watchProviders=${slider.data?.split(",")[1]}`}
                 linkUrl={`/discover/tv?watchRegion=${
-                  slider.data?.split(',')[0]
-                }&watchProviders=${slider.data?.split(',')[1]}`}
+                  slider.data?.split(",")[0]
+                }&watchProviders=${slider.data?.split(",")[1]}`}
               />
             );
             break;
@@ -425,12 +453,12 @@ const Discover = () => {
                 tempSliders.splice(originalPosition, 1);
                 hasClickedArrows
                   ? tempSliders.splice(
-                      position === 'Above' ? index - 1 : index + 1,
+                      position === "Above" ? index - 1 : index + 1,
                       0,
                       originalItem
                     )
                   : tempSliders.splice(
-                      position === 'Above' && index > originalPosition
+                      position === "Above" && index > originalPosition
                         ? Math.max(index - 1, 0)
                         : index,
                       0,

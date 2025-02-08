@@ -1,0 +1,31 @@
+.env
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+yarn.lock
+package-lock.json
+
+# Environment variables and secrets
+.env
+
+/build
+/dist
+/.next/
+/out/
+*.tsbuildinfo
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.directory
+
+# Misc
+.cache/
+.temp/
+*.swp
+.vercel

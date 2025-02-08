@@ -1,30 +1,32 @@
-import VersionStatus from '@app/components/Layout/VersionStatus';
-import useClickOutside from '@app/hooks/useClickOutside';
-import { Permission, useUser } from '@app/hooks/useUser';
-import { Transition } from '@headlessui/react';
+import VersionStatus from "@app/components/Layout/VersionStatus";
+import useClickOutside from "@app/hooks/useClickOutside";
+import { Permission, useUser } from "@app/hooks/useUser";
+import { Transition } from "@headlessui/react";
 import {
   ClockIcon,
   CogIcon,
   ExclamationTriangleIcon,
   FilmIcon,
+  PlayIcon,
   SparklesIcon,
   TvIcon,
   UsersIcon,
   XMarkIcon,
-} from '@heroicons/react/24/outline';
-import Link from 'next/link';
-import { useRouter } from 'next/router';
-import { Fragment, useRef } from 'react';
-import { defineMessages, useIntl } from 'react-intl';
+} from "@heroicons/react/24/outline";
+import Link from "next/link";
+import { useRouter } from "next/router";
+import { Fragment, useRef } from "react";
+import { defineMessages, useIntl } from "react-intl";
 
 export const menuMessages = defineMessages({
-  dashboard: 'Discover',
-  browsemovies: 'Movies',
-  browsetv: 'Series',
-  requests: 'Requests',
-  issues: 'Issues',
-  users: 'Users',
-  settings: 'Settings',
+  dashboard: "Home",
+  browsemovies: "Movies",
+  browsetv: "Series",
+  requests: "Manage",
+  issues: "Issues",
+  users: "Users",
+  settings: "Settings",
+  watch: "Watch",
 });
 
 interface SidebarProps {
@@ -39,38 +41,44 @@ interface SidebarLinkProps {
   activeRegExp: RegExp;
   as?: string;
   requiredPermission?: Permission | Permission[];
-  permissionType?: 'and' | 'or';
+  permissionType?: "and" | "or";
   dataTestId?: string;
 }
 
 const SidebarLinks: SidebarLinkProps[] = [
   {
-    href: '/',
-    messagesKey: 'dashboard',
+    href: "/",
+    messagesKey: "dashboard",
     svgIcon: <SparklesIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/(discover\/?)?$/,
   },
   {
-    href: '/discover/movies',
-    messagesKey: 'browsemovies',
+    href: "/discover/movies",
+    messagesKey: "browsemovies",
     svgIcon: <FilmIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/discover\/movies$/,
   },
   {
-    href: '/discover/tv',
-    messagesKey: 'browsetv',
+    href: "/discover/tv",
+    messagesKey: "browsetv",
     svgIcon: <TvIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/discover\/tv$/,
   },
   {
-    href: '/requests',
-    messagesKey: 'requests',
+    href: "/requests",
+    messagesKey: "requests",
     svgIcon: <ClockIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/requests/,
   },
   {
-    href: '/issues',
-    messagesKey: 'issues',
+    href: "#", // We will dynamically handle the href
+    messagesKey: "watch", // Add this to `menuMessages` below
+    svgIcon: <PlayIcon className="mr-3 h-6 w-6" />, // Reuse an icon or replace with a relevant one
+    activeRegExp: /^\/watch$/, // Optional – highlight current route if any
+  },
+  {
+    href: "/issues",
+    messagesKey: "issues",
     svgIcon: <ExclamationTriangleIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/issues/,
     requiredPermission: [
@@ -78,32 +86,52 @@ const SidebarLinks: SidebarLinkProps[] = [
       Permission.CREATE_ISSUES,
       Permission.VIEW_ISSUES,
     ],
-    permissionType: 'or',
+    permissionType: "or",
   },
   {
-    href: '/users',
-    messagesKey: 'users',
+    href: "/users",
+    messagesKey: "users",
     svgIcon: <UsersIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/users/,
     requiredPermission: Permission.MANAGE_USERS,
-    dataTestId: 'sidebar-menu-users',
+    dataTestId: "sidebar-menu-users",
   },
   {
-    href: '/settings',
-    messagesKey: 'settings',
+    href: "/settings",
+    messagesKey: "settings",
     svgIcon: <CogIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/settings/,
     requiredPermission: Permission.ADMIN,
-    dataTestId: 'sidebar-menu-settings',
+    dataTestId: "sidebar-menu-settings",
   },
 ];
-
 const Sidebar = ({ open, setClosed }: SidebarProps) => {
   const navRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const intl = useIntl();
-  const { hasPermission } = useUser();
+  const { hasPermission, user, loading, error } = useUser();
   useClickOutside(navRef, () => setClosed());
+
+  // Inside your Sidebar component, update the handler:
+  const handlePlexLaunch = async () => {
+    try {
+      const response = await fetch("/api/v1/auth/plex/launch", {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to launch Plex");
+      }
+
+      window.open(data.url, "_blank");
+    } catch (error: any) {
+      alert(error.message);
+    }
+  };
 
   return (
     <>
@@ -158,10 +186,40 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                       {SidebarLinks.filter((link) =>
                         link.requiredPermission
                           ? hasPermission(link.requiredPermission, {
-                              type: link.permissionType ?? 'and',
+                              type: link.permissionType ?? "and",
                             })
                           : true
                       ).map((sidebarLink) => {
+                        if (sidebarLink.messagesKey === "watch") {
+                          return (
+                            <a
+                              key={`mobile-${sidebarLink.messagesKey}`}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => {
+                                setClosed();
+                                handlePlexLaunch();
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  setClosed();
+                                  handlePlexLaunch();
+                                }
+                              }}
+                              className={`flex items-center rounded-md px-2 py-2 text-base font-medium leading-6 text-white transition duration-150 ease-in-out focus:outline-none 
+                              ${
+                                router.pathname.match(sidebarLink.activeRegExp)
+                                  ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+                                  : "hover:bg-gray-700 focus:bg-gray-700"
+                              }`}
+                            >
+                              {sidebarLink.svgIcon}
+                              {intl.formatMessage(
+                                menuMessages[sidebarLink.messagesKey]
+                              )}
+                            </a>
+                          );
+                        }
                         return (
                           <Link
                             key={`mobile-${sidebarLink.messagesKey}`}
@@ -171,21 +229,18 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                             <a
                               onClick={() => setClosed()}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
+                                if (e.key === "Enter") {
                                   setClosed();
                                 }
                               }}
                               role="button"
                               tabIndex={0}
                               className={`flex items-center rounded-md px-2 py-2 text-base font-medium leading-6 text-white transition duration-150 ease-in-out focus:outline-none
-                                ${
-                                  router.pathname.match(
-                                    sidebarLink.activeRegExp
-                                  )
-                                    ? 'bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500'
-                                    : 'hover:bg-gray-700 focus:bg-gray-700'
-                                }
-                              `}
+                              ${
+                                router.pathname.match(sidebarLink.activeRegExp)
+                                  ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+                                  : "hover:bg-gray-700 focus:bg-gray-700"
+                              }`}
                               data-testid={`${sidebarLink.dataTestId}-mobile`}
                             >
                               {sidebarLink.svgIcon}
@@ -204,15 +259,12 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                     )}
                   </div>
                 </div>
-                <div className="w-14 flex-shrink-0">
-                  {/* <!-- Force sidebar to shrink to fit close icon --> */}
-                </div>
+                <div className="w-14 flex-shrink-0"></div>
               </>
             </Transition.Child>
           </div>
         </Transition>
       </div>
-
       <div className="fixed top-0 bottom-0 left-0 z-30 hidden lg:flex lg:flex-shrink-0">
         <div className="sidebar flex w-64 flex-col">
           <div className="flex h-0 flex-1 flex-col">
@@ -228,10 +280,36 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                 {SidebarLinks.filter((link) =>
                   link.requiredPermission
                     ? hasPermission(link.requiredPermission, {
-                        type: link.permissionType ?? 'and',
+                        type: link.permissionType ?? "and",
                       })
                     : true
                 ).map((sidebarLink) => {
+                  if (sidebarLink.messagesKey === "watch") {
+                    return (
+                      <a
+                        key={`desktop-${sidebarLink.messagesKey}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={handlePlexLaunch}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handlePlexLaunch();
+                          }
+                        }}
+                        className={`group flex items-center rounded-md px-2 py-2 text-lg font-medium leading-6 text-white transition duration-150 ease-in-out focus:outline-none
+                        ${
+                          router.pathname.match(sidebarLink.activeRegExp)
+                            ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+                            : "hover:bg-gray-700 focus:bg-gray-700"
+                        }`}
+                      >
+                        {sidebarLink.svgIcon}
+                        {intl.formatMessage(
+                          menuMessages[sidebarLink.messagesKey]
+                        )}
+                      </a>
+                    );
+                  }
                   return (
                     <Link
                       key={`desktop-${sidebarLink.messagesKey}`}
@@ -240,14 +318,11 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                     >
                       <a
                         className={`group flex items-center rounded-md px-2 py-2 text-lg font-medium leading-6 text-white transition duration-150 ease-in-out focus:outline-none
-                                ${
-                                  router.pathname.match(
-                                    sidebarLink.activeRegExp
-                                  )
-                                    ? 'bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500'
-                                    : 'hover:bg-gray-700 focus:bg-gray-700'
-                                }
-                              `}
+                        ${
+                          router.pathname.match(sidebarLink.activeRegExp)
+                            ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+                            : "hover:bg-gray-700 focus:bg-gray-700"
+                        }`}
                         data-testid={sidebarLink.dataTestId}
                       >
                         {sidebarLink.svgIcon}

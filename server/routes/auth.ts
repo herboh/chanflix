@@ -1,21 +1,21 @@
-import PlexTvAPI from '@server/api/plextv';
-import { UserType } from '@server/constants/user';
-import { getRepository } from '@server/datasource';
-import { User } from '@server/entity/User';
-import { Permission } from '@server/lib/permissions';
-import { getSettings } from '@server/lib/settings';
-import logger from '@server/logger';
-import { isAuthenticated } from '@server/middleware/auth';
-import { Router } from 'express';
+import PlexTvAPI from "@server/api/plextv";
+import { UserType } from "@server/constants/user";
+import { getRepository } from "@server/datasource";
+import { User } from "@server/entity/User";
+import { Permission } from "@server/lib/permissions";
+import { getSettings } from "@server/lib/settings";
+import logger from "@server/logger";
+import { isAuthenticated } from "@server/middleware/auth";
+import { Router } from "express";
 
 const authRoutes = Router();
 
-authRoutes.get('/me', isAuthenticated(), async (req, res) => {
+authRoutes.get("/me", isAuthenticated(), async (req, res) => {
   const userRepository = getRepository(User);
   if (!req.user) {
     return res.status(500).json({
       status: 500,
-      error: 'Please sign in.',
+      error: "Please sign in.",
     });
   }
   const user = await userRepository.findOneOrFail({
@@ -25,7 +25,7 @@ authRoutes.get('/me', isAuthenticated(), async (req, res) => {
   return res.status(200).json(user);
 });
 
-authRoutes.post('/plex', async (req, res, next) => {
+authRoutes.post("/plex", async (req, res, next) => {
   const settings = getSettings();
   const userRepository = getRepository(User);
   const body = req.body as { authToken?: string };
@@ -33,7 +33,7 @@ authRoutes.post('/plex', async (req, res, next) => {
   if (!body.authToken) {
     return next({
       status: 500,
-      message: 'Authentication token required.',
+      message: "Authentication token required.",
     });
   }
   try {
@@ -43,9 +43,9 @@ authRoutes.post('/plex', async (req, res, next) => {
 
     // Next let's see if the user already exists
     let user = await userRepository
-      .createQueryBuilder('user')
-      .where('user.plexId = :id', { id: account.id })
-      .orWhere('user.email = :email', {
+      .createQueryBuilder("user")
+      .where("user.plexId = :id", { id: account.id })
+      .orWhere("user.email = :email", {
         email: account.email.toLowerCase(),
       })
       .getOne();
@@ -67,11 +67,11 @@ authRoutes.post('/plex', async (req, res, next) => {
         select: { id: true, plexToken: true, plexId: true, email: true },
         where: { id: 1 },
       });
-      const mainPlexTv = new PlexTvAPI(mainUser.plexToken ?? '');
+      const mainPlexTv = new PlexTvAPI(mainUser.plexToken ?? "");
 
       if (!account.id) {
-        logger.error('Plex ID was missing from Plex.tv response', {
-          label: 'API',
+        logger.error("Plex ID was missing from Plex.tv response", {
+          label: "API",
           ip: req.ip,
           email: account.email,
           plexUsername: account.username,
@@ -79,7 +79,7 @@ authRoutes.post('/plex', async (req, res, next) => {
 
         return next({
           status: 500,
-          message: 'Something went wrong. Try again.',
+          message: "Something went wrong. Try again.",
         });
       }
 
@@ -91,9 +91,9 @@ authRoutes.post('/plex', async (req, res, next) => {
         if (user) {
           if (!user.plexId) {
             logger.info(
-              'Found matching Plex user; updating user with Plex data',
+              "Found matching Plex user; updating user with Plex data",
               {
-                label: 'API',
+                label: "API",
                 ip: req.ip,
                 email: user.email,
                 userId: user.id,
@@ -113,9 +113,9 @@ authRoutes.post('/plex', async (req, res, next) => {
           await userRepository.save(user);
         } else if (!settings.main.newPlexLogin) {
           logger.warn(
-            'Failed sign-in attempt by unimported Plex user with access to the media server',
+            "Failed sign-in attempt by unimported Plex user with access to the media server",
             {
-              label: 'API',
+              label: "API",
               ip: req.ip,
               email: account.email,
               plexId: account.id,
@@ -124,13 +124,13 @@ authRoutes.post('/plex', async (req, res, next) => {
           );
           return next({
             status: 403,
-            message: 'Access denied.',
+            message: "Access denied.",
           });
         } else {
           logger.info(
-            'Sign-in attempt from Plex user with access to the media server; creating new Overseerr user',
+            "Sign-in attempt from Plex user with access to the media server; creating new Overseerr user",
             {
-              label: 'API',
+              label: "API",
               ip: req.ip,
               email: account.email,
               plexId: account.id,
@@ -151,9 +151,9 @@ authRoutes.post('/plex', async (req, res, next) => {
         }
       } else {
         logger.warn(
-          'Failed sign-in attempt by Plex user without access to the media server',
+          "Failed sign-in attempt by Plex user without access to the media server",
           {
-            label: 'API',
+            label: "API",
             ip: req.ip,
             email: account.email,
             plexId: account.id,
@@ -162,7 +162,7 @@ authRoutes.post('/plex', async (req, res, next) => {
         );
         return next({
           status: 403,
-          message: 'Access denied.',
+          message: "Access denied.",
         });
       }
     }
@@ -174,47 +174,47 @@ authRoutes.post('/plex', async (req, res, next) => {
 
     return res.status(200).json(user?.filter() ?? {});
   } catch (e) {
-    logger.error('Something went wrong authenticating with Plex account', {
-      label: 'API',
+    logger.error("Something went wrong authenticating with Plex account", {
+      label: "API",
       errorMessage: e.message,
       ip: req.ip,
     });
     return next({
       status: 500,
-      message: 'Unable to authenticate.',
+      message: "Unable to authenticate.",
     });
   }
 });
 
-authRoutes.post('/local', async (req, res, next) => {
+authRoutes.post("/local", async (req, res, next) => {
   const settings = getSettings();
   const userRepository = getRepository(User);
   const body = req.body as { email?: string; password?: string };
 
   if (!settings.main.localLogin) {
-    return res.status(500).json({ error: 'Password sign-in is disabled.' });
+    return res.status(500).json({ error: "Password sign-in is disabled." });
   } else if (!body.email || !body.password) {
     return res.status(500).json({
-      error: 'You must provide both an email address and a password.',
+      error: "You must provide both an email address and a password.",
     });
   }
   try {
     const user = await userRepository
-      .createQueryBuilder('user')
-      .select(['user.id', 'user.email', 'user.password', 'user.plexId'])
-      .where('user.email = :email', { email: body.email.toLowerCase() })
+      .createQueryBuilder("user")
+      .select(["user.id", "user.email", "user.password", "user.plexId"])
+      .where("user.email = :email", { email: body.email.toLowerCase() })
       .getOne();
 
     if (!user || !(await user.passwordMatch(body.password))) {
-      logger.warn('Failed sign-in attempt using invalid Overseerr password', {
-        label: 'API',
+      logger.warn("Failed sign-in attempt using invalid Overseerr password", {
+        label: "API",
         ip: req.ip,
         email: body.email,
         userId: user?.id,
       });
       return next({
         status: 403,
-        message: 'Access denied.',
+        message: "Access denied.",
       });
     }
 
@@ -222,7 +222,7 @@ authRoutes.post('/local', async (req, res, next) => {
       select: { id: true, plexToken: true, plexId: true },
       where: { id: 1 },
     });
-    const mainPlexTv = new PlexTvAPI(mainUser.plexToken ?? '');
+    const mainPlexTv = new PlexTvAPI(mainUser.plexToken ?? "");
 
     if (!user.plexId) {
       try {
@@ -238,9 +238,9 @@ authRoutes.post('/local', async (req, res, next) => {
           (await mainPlexTv.checkUserAccess(parseInt(account.id)))
         ) {
           logger.info(
-            'Found matching Plex user; updating user with Plex data',
+            "Found matching Plex user; updating user with Plex data",
             {
-              label: 'API',
+              label: "API",
               ip: req.ip,
               email: body.email,
               userId: user.id,
@@ -258,8 +258,8 @@ authRoutes.post('/local', async (req, res, next) => {
           await userRepository.save(user);
         }
       } catch (e) {
-        logger.error('Something went wrong fetching Plex users', {
-          label: 'API',
+        logger.error("Something went wrong fetching Plex users", {
+          label: "API",
           errorMessage: e.message,
         });
       }
@@ -271,9 +271,9 @@ authRoutes.post('/local', async (req, res, next) => {
       !(await mainPlexTv.checkUserAccess(user.plexId))
     ) {
       logger.warn(
-        'Failed sign-in attempt from Plex user without access to the media server',
+        "Failed sign-in attempt from Plex user without access to the media server",
         {
-          label: 'API',
+          label: "API",
           account: {
             ip: req.ip,
             email: body.email,
@@ -284,7 +284,7 @@ authRoutes.post('/local', async (req, res, next) => {
       );
       return next({
         status: 403,
-        message: 'Access denied.',
+        message: "Access denied.",
       });
     }
 
@@ -296,9 +296,9 @@ authRoutes.post('/local', async (req, res, next) => {
     return res.status(200).json(user?.filter() ?? {});
   } catch (e) {
     logger.error(
-      'Something went wrong authenticating with Overseerr password',
+      "Something went wrong authenticating with Overseerr password",
       {
-        label: 'API',
+        label: "API",
         errorMessage: e.message,
         ip: req.ip,
         email: body.email,
@@ -306,71 +306,71 @@ authRoutes.post('/local', async (req, res, next) => {
     );
     return next({
       status: 500,
-      message: 'Unable to authenticate.',
+      message: "Unable to authenticate.",
     });
   }
 });
 
-authRoutes.post('/logout', (req, res, next) => {
+authRoutes.post("/logout", (req, res, next) => {
   req.session?.destroy((err) => {
     if (err) {
       return next({
         status: 500,
-        message: 'Something went wrong.',
+        message: "Something went wrong.",
       });
     }
 
-    return res.status(200).json({ status: 'ok' });
+    return res.status(200).json({ status: "ok" });
   });
 });
 
-authRoutes.post('/reset-password', async (req, res, next) => {
+authRoutes.post("/reset-password", async (req, res, next) => {
   const userRepository = getRepository(User);
   const body = req.body as { email?: string };
 
   if (!body.email) {
     return next({
       status: 500,
-      message: 'Email address required.',
+      message: "Email address required.",
     });
   }
 
   const user = await userRepository
-    .createQueryBuilder('user')
-    .where('user.email = :email', { email: body.email.toLowerCase() })
+    .createQueryBuilder("user")
+    .where("user.email = :email", { email: body.email.toLowerCase() })
     .getOne();
 
   if (user) {
     await user.resetPassword();
     userRepository.save(user);
-    logger.info('Successfully sent password reset link', {
-      label: 'API',
+    logger.info("Successfully sent password reset link", {
+      label: "API",
       ip: req.ip,
       email: body.email,
     });
   } else {
-    logger.error('Something went wrong sending password reset link', {
-      label: 'API',
+    logger.error("Something went wrong sending password reset link", {
+      label: "API",
       ip: req.ip,
       email: body.email,
     });
   }
 
-  return res.status(200).json({ status: 'ok' });
+  return res.status(200).json({ status: "ok" });
 });
 
-authRoutes.post('/reset-password/:guid', async (req, res, next) => {
+authRoutes.post("/reset-password/:guid", async (req, res, next) => {
   const userRepository = getRepository(User);
 
   if (!req.body.password || req.body.password?.length < 8) {
-    logger.warn('Failed password reset attempt using invalid new password', {
-      label: 'API',
+    logger.warn("Failed password reset attempt using invalid new password", {
+      label: "API",
       ip: req.ip,
       guid: req.params.guid,
     });
     return next({
       status: 500,
-      message: 'Password must be at least 8 characters long.',
+      message: "Password must be at least 8 characters long.",
     });
   }
 
@@ -379,14 +379,14 @@ authRoutes.post('/reset-password/:guid', async (req, res, next) => {
   });
 
   if (!user) {
-    logger.warn('Failed password reset attempt using invalid recovery link', {
-      label: 'API',
+    logger.warn("Failed password reset attempt using invalid recovery link", {
+      label: "API",
       ip: req.ip,
       guid: req.params.guid,
     });
     return next({
       status: 500,
-      message: 'Invalid password reset link.',
+      message: "Invalid password reset link.",
     });
   }
 
@@ -394,29 +394,46 @@ authRoutes.post('/reset-password/:guid', async (req, res, next) => {
     !user.recoveryLinkExpirationDate ||
     user.recoveryLinkExpirationDate <= new Date()
   ) {
-    logger.warn('Failed password reset attempt using expired recovery link', {
-      label: 'API',
+    logger.warn("Failed password reset attempt using expired recovery link", {
+      label: "API",
       ip: req.ip,
       guid: req.params.guid,
       email: user.email,
     });
     return next({
       status: 500,
-      message: 'Invalid password reset link.',
+      message: "Invalid password reset link.",
     });
   }
 
   await user.setPassword(req.body.password);
   user.recoveryLinkExpirationDate = null;
   userRepository.save(user);
-  logger.info('Successfully reset password', {
-    label: 'API',
+  logger.info("Successfully reset password", {
+    label: "API",
     ip: req.ip,
     guid: req.params.guid,
     email: user.email,
   });
 
-  return res.status(200).json({ status: 'ok' });
+  return res.status(200).json({ status: "ok" });
+});
+
+authRoutes.get("/api/v1/plex/launch", isAuthenticated(), async (req, res) => {
+  try {
+    if (!req.user?.plexToken) {
+      return res.status(400).json({ error: "No Plex token found for user" });
+    }
+
+    const baseUrl = "https://app.plex.tv/desktop/";
+    const plexUrl = `${baseUrl}?X-Plex-Token=${req.user.plexToken}`;
+
+    return res.json({ url: plexUrl });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ error: "Failed to generate Plex launch URL" });
+  }
 });
 
 export default authRoutes;

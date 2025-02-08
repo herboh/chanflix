@@ -1,18 +1,18 @@
-import axios from 'axios';
-import Bowser from 'bowser';
+import axios from "axios";
+import Bowser from "bowser";
 
 interface PlexHeaders extends Record<string, string> {
   Accept: string;
-  'X-Plex-Product': string;
-  'X-Plex-Version': string;
-  'X-Plex-Client-Identifier': string;
-  'X-Plex-Model': string;
-  'X-Plex-Platform': string;
-  'X-Plex-Platform-Version': string;
-  'X-Plex-Device': string;
-  'X-Plex-Device-Name': string;
-  'X-Plex-Device-Screen-Resolution': string;
-  'X-Plex-Language': string;
+  "X-Plex-Product": string;
+  "X-Plex-Version": string;
+  "X-Plex-Client-Identifier": string;
+  "X-Plex-Model": string;
+  "X-Plex-Platform": string;
+  "X-Plex-Platform-Version": string;
+  "X-Plex-Device": string;
+  "X-Plex-Device-Name": string;
+  "X-Plex-Device-Screen-Resolution": string;
+  "X-Plex-Language": string;
 }
 
 export interface PlexPin {
@@ -44,42 +44,42 @@ class PlexOAuth {
   public initializeHeaders(): void {
     if (!window) {
       throw new Error(
-        'Window is not defined. Are you calling this in the browser?'
+        "Window is not defined. Are you calling this in the browser?"
       );
     }
 
-    let clientId = localStorage.getItem('plex-client-id');
+    let clientId = localStorage.getItem("plex-client-id");
     if (!clientId) {
       const uuid = uuidv4();
-      localStorage.setItem('plex-client-id', uuid);
+      localStorage.setItem("plex-client-id", uuid);
       clientId = uuid;
     }
 
     const browser = Bowser.getParser(window.navigator.userAgent);
     this.plexHeaders = {
-      Accept: 'application/json',
-      'X-Plex-Product': 'Overseerr',
-      'X-Plex-Version': 'Plex OAuth',
-      'X-Plex-Client-Identifier': clientId,
-      'X-Plex-Model': 'Plex OAuth',
-      'X-Plex-Platform': browser.getBrowserName(),
-      'X-Plex-Platform-Version': browser.getBrowserVersion(),
-      'X-Plex-Device': browser.getOSName(),
-      'X-Plex-Device-Name': `${browser.getBrowserName()} (Overseerr)`,
-      'X-Plex-Device-Screen-Resolution':
-        window.screen.width + 'x' + window.screen.height,
-      'X-Plex-Language': 'en',
+      Accept: "application/json",
+      "X-Plex-Product": "Overseerr",
+      "X-Plex-Version": "Plex OAuth",
+      "X-Plex-Client-Identifier": clientId,
+      "X-Plex-Model": "Plex OAuth",
+      "X-Plex-Platform": browser.getBrowserName(),
+      "X-Plex-Platform-Version": browser.getBrowserVersion(),
+      "X-Plex-Device": browser.getOSName(),
+      "X-Plex-Device-Name": `${browser.getBrowserName()} (Overseerr)`,
+      "X-Plex-Device-Screen-Resolution":
+        window.screen.width + "x" + window.screen.height,
+      "X-Plex-Language": "en",
     };
   }
 
   public async getPin(): Promise<PlexPin> {
     if (!this.plexHeaders) {
       throw new Error(
-        'You must initialize the plex headers clientside to login'
+        "You must initialize the plex headers clientside to login"
       );
     }
     const response = await axios.post(
-      'https://plex.tv/api/v2/pins?strong=true',
+      "https://plex.tv/api/v2/pins?strong=true",
       undefined,
       { headers: this.plexHeaders }
     );
@@ -90,7 +90,7 @@ class PlexOAuth {
   }
 
   public preparePopup(): void {
-    this.openPopup({ title: 'Plex Auth', w: 600, h: 700 });
+    this.openPopup({ title: "Plex Auth", w: 600, h: 700 });
   }
 
   public async login(): Promise<string> {
@@ -98,22 +98,22 @@ class PlexOAuth {
     await this.getPin();
 
     if (!this.plexHeaders || !this.pin) {
-      throw new Error('Unable to call login if class is not initialized.');
+      throw new Error("Unable to call login if class is not initialized.");
     }
 
     const params = {
-      clientID: this.plexHeaders['X-Plex-Client-Identifier'],
-      'context[device][product]': this.plexHeaders['X-Plex-Product'],
-      'context[device][version]': this.plexHeaders['X-Plex-Version'],
-      'context[device][platform]': this.plexHeaders['X-Plex-Platform'],
-      'context[device][platformVersion]':
-        this.plexHeaders['X-Plex-Platform-Version'],
-      'context[device][device]': this.plexHeaders['X-Plex-Device'],
-      'context[device][deviceName]': this.plexHeaders['X-Plex-Device-Name'],
-      'context[device][model]': this.plexHeaders['X-Plex-Model'],
-      'context[device][screenResolution]':
-        this.plexHeaders['X-Plex-Device-Screen-Resolution'],
-      'context[device][layout]': 'desktop',
+      clientID: this.plexHeaders["X-Plex-Client-Identifier"],
+      "context[device][product]": this.plexHeaders["X-Plex-Product"],
+      "context[device][version]": this.plexHeaders["X-Plex-Version"],
+      "context[device][platform]": this.plexHeaders["X-Plex-Platform"],
+      "context[device][platformVersion]":
+        this.plexHeaders["X-Plex-Platform-Version"],
+      "context[device][device]": this.plexHeaders["X-Plex-Device"],
+      "context[device][deviceName]": this.plexHeaders["X-Plex-Device-Name"],
+      "context[device][model]": this.plexHeaders["X-Plex-Model"],
+      "context[device][screenResolution]":
+        this.plexHeaders["X-Plex-Device-Screen-Resolution"],
+      "context[device][layout]": "desktop",
       code: this.pin.code,
     };
 
@@ -133,7 +133,7 @@ class PlexOAuth {
     ) => {
       try {
         if (!this.pin) {
-          throw new Error('Unable to poll when pin is not initialized.');
+          throw new Error("Unable to poll when pin is not initialized.");
         }
 
         const response = await axios.get(
@@ -148,7 +148,7 @@ class PlexOAuth {
         } else if (!response.data?.authToken && !this.popup?.closed) {
           setTimeout(executePoll, 1000, resolve, reject);
         } else {
-          reject(new Error('Popup closed without completing login'));
+          reject(new Error("Popup closed without completing login"));
         }
       } catch (e) {
         this.closePopup();
@@ -175,7 +175,7 @@ class PlexOAuth {
   }): Window | void {
     if (!window) {
       throw new Error(
-        'Window is undefined. Are you running this in the browser?'
+        "Window is undefined. Are you running this in the browser?"
       );
     }
     // Fixes dual-screen position                         Most browsers      Firefox
@@ -198,15 +198,15 @@ class PlexOAuth {
 
     //Set url to login/plex/loading so browser doesn't block popup
     const newWindow = window.open(
-      '/login/plex/loading',
+      "/login/plex/loading",
       title,
-      'scrollbars=yes, width=' +
+      "scrollbars=yes, width=" +
         w +
-        ', height=' +
+        ", height=" +
         h +
-        ', top=' +
+        ", top=" +
         top +
-        ', left=' +
+        ", left=" +
         left
     );
     if (newWindow) {
@@ -219,9 +219,9 @@ class PlexOAuth {
   private encodeData(data: Record<string, string>): string {
     return Object.keys(data)
       .map(function (key) {
-        return [key, data[key]].map(encodeURIComponent).join('=');
+        return [key, data[key]].map(encodeURIComponent).join("=");
       })
-      .join('&');
+      .join("&");
   }
 }
 
