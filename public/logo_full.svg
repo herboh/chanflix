@@ -9,13 +9,13 @@
       <stop offset="1" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  
+
   <!-- Logo circle with gradient -->
   <path fill="url(#paint0_linear)" fill-rule="evenodd" d="M48 96C74.5097 96 96 74.5097 96 48C96 21.4903 74.5097 0 48 0C21.4903 0 0 21.4903 0 48C0 74.5097 21.4903 96 48 96ZM80 52C80 67.464 67.464 80 52 80C36.536 80 24 67.464 24 52C24 49.1303 24.4318 46.3615 25.2338 43.7548C27.4288 48.6165 32.3194 52 38 52C45.732 52 52 45.732 52 38C52 32.3192 48.6166 27.4287 43.755 25.2337C46.3616 24.4317 49.1304 24 52 24C67.464 24 80 36.536 80 52Z" clip-rule="evenodd"/>
-  
+
   <!-- Stylized C in the circle -->
   <path fill="#fff" fill-rule="evenodd" d="M52 84C70.5685 84 84 70.5685 84 54C84 37.4315 70.5685 24 54 24L52.9831 24.0169C67.9919 24.5347 80 36.865 80 52C80 67.464 67.464 80 52 80C36.864 80 24.5329 67.9897 24.017 52.9791L24 54C24 70.5685 37.4315 84 54 84H52Z" clip-rule="evenodd" opacity=".2"/>
-  
+
   <!-- Text "chanflix" -->
   <text x="120" y="72" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="#ffffff">chanflix</text>
 </svg>
