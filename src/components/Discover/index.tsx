@@ -13,6 +13,10 @@ import RecentlyAddedSlider from "@app/components/Discover/RecentlyAddedSlider";
 import RecentRequestsSlider from "@app/components/Discover/RecentRequestsSlider";
 import StudioSlider from "@app/components/Discover/StudioSlider";
 import TvGenreSlider from "@app/components/Discover/TvGenreSlider";
+import ActivityWidget from "@app/components/Discover/Widgets/ActivityWidget";
+import LatestPostWidget from "@app/components/Discover/Widgets/LatestPostWidget";
+import LatestReviewWidget from "@app/components/Discover/Widgets/LatestReviewWidget";
+import PopularWidget from "@app/components/Discover/Widgets/PopularWidget";
 import MediaSlider from "@app/components/MediaSlider";
 import { encodeURIExtraParams } from "@app/hooks/useDiscover";
 import { Permission, useUser } from "@app/hooks/useUser";
@@ -131,24 +135,11 @@ const Discover = () => {
         </p>
       </div>
 
-      <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-gray-700 bg-gray-800 p-6">
-          <h2 className="mb-4 text-xl font-semibold text-gray-100">
-            Popular Content
-          </h2>
-          <div className="flex h-32 items-center justify-center text-gray-400">
-            Future content will go here
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-gray-700 bg-gray-800 p-6">
-          <h2 className="mb-4 text-xl font-semibold text-gray-100">
-            Recent Activity
-          </h2>
-          <div className="flex h-32 items-center justify-center text-gray-400">
-            Future content will go here
-          </div>
-        </div>
+      <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <PopularWidget />
+        <ActivityWidget />
+        <LatestReviewWidget />
+        <LatestPostWidget />
       </div>
       {hasPermission(Permission.ADMIN) && (
         <>

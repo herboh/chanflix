@@ -3,12 +3,14 @@ import useClickOutside from "@app/hooks/useClickOutside";
 import { Permission, useUser } from "@app/hooks/useUser";
 import { Transition } from "@headlessui/react";
 import {
+  ArrowDownTrayIcon,
   BookOpenIcon,
   ChatBubbleLeftRightIcon,
   ClockIcon,
   CogIcon,
   ExclamationTriangleIcon,
   FilmIcon,
+  FolderIcon,
   PlayIcon,
   SparklesIcon,
   TvIcon,
@@ -31,6 +33,8 @@ export const menuMessages = defineMessages({
   watch: "Watch",
   docs: "Docs",
   community: "Community",
+  downloads: "Downloads",
+  library: "Library",
 });
 
 interface SidebarProps {
@@ -91,6 +95,18 @@ const SidebarLinks: SidebarLinkProps[] = [
     messagesKey: "community",
     svgIcon: <ChatBubbleLeftRightIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/community/,
+  },
+  {
+    href: "/downloads",
+    messagesKey: "downloads",
+    svgIcon: <ArrowDownTrayIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^\/downloads/,
+  },
+  {
+    href: "/library",
+    messagesKey: "library",
+    svgIcon: <FolderIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^\/library/,
   },
   {
     href: "/issues",

@@ -105,6 +105,33 @@ interface TautulliInfo {
   tautulli_python_version: string;
 }
 
+export interface TautulliHomeStatItem {
+  title: string;
+  rating_key: string;
+  grandparent_rating_key?: string;
+  thumb: string;
+  art?: string;
+  total_plays: number;
+  total_duration: number;
+  users_watched: number;
+  section_id: number;
+  media_type: 'movie' | 'show';
+  content_rating?: string;
+  year?: number;
+}
+
+interface TautulliHomeStatsResponse {
+  response: {
+    result: string;
+    message?: string;
+    data: Array<{
+      stat_id: string;
+      stat_title: string;
+      rows: TautulliHomeStatItem[];
+    }>;
+  };
+}
+
 interface TautulliInfoResponse {
   response: {
     result: string;
@@ -286,6 +313,84 @@ class TautulliAPI {
       );
       throw new Error(
         `[Tautulli] Failed to fetch user watch history: ${e.message}`
+      );
+    }
+  }
+
+  public async getPopularContent(
+    days: number = 30,
+    take: number = 5
+  ): Promise<TautulliHomeStatItem[]> {
+    try {
+      const response = await this.axios.get<TautulliHomeStatsResponse>(
+        '/api/v2',
+        {
+          params: {
+            cmd: 'get_home_stats',
+            time_range: days,
+            stats_type: 'duration',
+            stats_count: take,
+          },
+        }
+      );
+
+      const data = response.data.response.data;
+
+      // Find the most watched movies and shows stats
+      const popularMovies =
+        data.find((stat) => stat.stat_id === 'popular_movies')?.rows || [];
+      const popularShows =
+        data.find((stat) => stat.stat_id === 'popular_tv')?.rows || [];
+
+      // Combine and sort by total_plays
+      const combined = [...popularMovies, ...popularShows]
+        .sort((a, b) => b.total_plays - a.total_plays)
+        .slice(0, take);
+
+      return combined;
+    } catch (e) {
+      logger.error(
+        'Something went wrong fetching popular content from Tautulli',
+        {
+          label: 'Tautulli API',
+          errorMessage: e.message,
+        }
+      );
+      throw new Error(
+        `[Tautulli] Failed to fetch popular content: ${e.message}`
+      );
+    }
+  }
+
+  public async getGlobalHistory(
+    take: number = 10
+  ): Promise<TautulliHistoryRecord[]> {
+    try {
+      const response = await this.axios.get<TautulliHistoryResponse>(
+        '/api/v2',
+        {
+          params: {
+            cmd: 'get_history',
+            grouping: 1,
+            order_column: 'date',
+            order_dir: 'desc',
+            media_type: 'movie,episode',
+            length: take,
+          },
+        }
+      );
+
+      return response.data.response.data.data;
+    } catch (e) {
+      logger.error(
+        'Something went wrong fetching global watch history from Tautulli',
+        {
+          label: 'Tautulli API',
+          errorMessage: e.message,
+        }
+      );
+      throw new Error(
+        `[Tautulli] Failed to fetch global watch history: ${e.message}`
       );
     }
   }

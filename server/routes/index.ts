@@ -25,7 +25,9 @@ import authRoutes from './auth';
 import boardRoutes from './board';
 import collectionRoutes from './collection';
 import discoverRoutes, { createTmdbWithRegionLanguage } from './discover';
+import downloadsRoutes from './downloads';
 import docsRoutes from './docs';
+import libraryRoutes from './library';
 import issueRoutes from './issue';
 import issueCommentRoutes from './issueComment';
 import mediaRoutes from './media';
@@ -35,6 +37,7 @@ import requestRoutes from './request';
 import reviewRoutes from './review';
 import searchRoutes from './search';
 import serviceRoutes from './service';
+import statsRoutes from './stats';
 import tvRoutes from './tv';
 import user from './user';
 
@@ -156,6 +159,9 @@ router.use('/issueComment', isAuthenticated(), issueCommentRoutes);
 router.use('/docs', isAuthenticated(), docsRoutes);
 router.use('/board', isAuthenticated(), boardRoutes);
 router.use('/review', isAuthenticated(), reviewRoutes);
+router.use('/stats', isAuthenticated(), statsRoutes);
+router.use('/downloads', isAuthenticated(), downloadsRoutes);
+router.use('/library', isAuthenticated(), libraryRoutes);
 router.use('/auth', authRoutes);
 
 router.get('/regions', isAuthenticated(), async (req, res, next) => {

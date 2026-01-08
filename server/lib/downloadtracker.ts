@@ -53,6 +53,41 @@ class DownloadTracker {
     );
   }
 
+  public getAllDownloads(): { movies: DownloadingItem[]; tv: DownloadingItem[] } {
+    const movies: DownloadingItem[] = [];
+    const tv: DownloadingItem[] = [];
+
+    // Collect all movie downloads from all Radarr servers
+    Object.values(this.radarrServers).forEach((serverDownloads) => {
+      serverDownloads.forEach((download) => {
+        // Avoid duplicates by checking if we already have this item
+        if (!movies.some((m) => m.externalId === download.externalId && m.title === download.title)) {
+          movies.push(download);
+        }
+      });
+    });
+
+    // Collect all TV downloads from all Sonarr servers
+    Object.values(this.sonarrServers).forEach((serverDownloads) => {
+      serverDownloads.forEach((download) => {
+        // For TV, include episode info in dedup check
+        if (!tv.some((t) =>
+          t.externalId === download.externalId &&
+          t.title === download.title &&
+          t.episode?.id === download.episode?.id
+        )) {
+          tv.push(download);
+        }
+      });
+    });
+
+    // Sort by estimated completion time
+    movies.sort((a, b) => a.estimatedCompletionTime.getTime() - b.estimatedCompletionTime.getTime());
+    tv.sort((a, b) => a.estimatedCompletionTime.getTime() - b.estimatedCompletionTime.getTime());
+
+    return { movies, tv };
+  }
+
   public async resetDownloadTracker() {
     this.radarrServers = {};
   }
