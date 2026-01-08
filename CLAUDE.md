@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Upstream**: https://github.com/sct/overseerr
 - **This fork**: https://github.com/herboh/chanflix
+- **Local path**: `~/code/git/chanflix`
 
 ## Development Commands
 
@@ -122,3 +123,7 @@ Runtime config/database stored at `~/docker/chanflix/` (mounted to `/app/config`
 ## API Documentation
 
 Local Swagger UI available at `http://localhost:5055/api-docs` when running dev server.
+
+## Claude Code Preferences
+
+- **No AI attribution in commits**: Do not add "Generated with Claude Code", "Co-Authored-By: Claude", or similar attribution lines to commit messages.
