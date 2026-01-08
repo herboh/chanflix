@@ -100,10 +100,10 @@ const TitleCard = ({
         onCancel={closeModal}
       />
       <div
-        className={`relative transform-gpu cursor-default overflow-hidden rounded-xl bg-gray-800 bg-cover outline-none ring-1 transition duration-300 ${
+        className={`relative transform-gpu cursor-default overflow-hidden rounded-xl bg-gruvbox-bg bg-cover outline-none border-2 transition duration-300 ${
           showDetail
-            ? 'scale-105 shadow-lg ring-gray-500'
-            : 'scale-100 shadow ring-gray-700'
+            ? 'scale-105 shadow-lg border-gruvbox-fg4'
+            : 'scale-100 shadow border-gruvbox-bg3'
         }`}
         style={{
           paddingBottom: '150%',
@@ -137,10 +137,10 @@ const TitleCard = ({
           />
           <div className="absolute left-0 right-0 flex items-center justify-between p-2">
             <div
-              className={`pointer-events-none z-40 rounded-full border bg-opacity-80 shadow-md ${
+              className={`pointer-events-none z-40 rounded-full border shadow-md ${
                 mediaType === 'movie' || mediaType === 'collection'
-                  ? 'border-blue-500 bg-blue-600'
-                  : 'border-purple-600 bg-purple-600'
+                  ? 'border-gruvbox-blue bg-gruvbox-blue'
+                  : 'border-gruvbox-aqua bg-gruvbox-aqua'
               }`}
             >
               <div className="flex h-4 items-center px-2 py-2 text-center text-xs font-medium uppercase tracking-wider text-white sm:h-5">
