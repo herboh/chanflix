@@ -419,7 +419,7 @@ authRoutes.post("/reset-password/:guid", async (req, res, next) => {
   return res.status(200).json({ status: "ok" });
 });
 
-authRoutes.get("/api/v1/plex/launch", isAuthenticated(), async (req, res) => {
+authRoutes.get("/plex/launch", isAuthenticated(), async (req, res) => {
   try {
     if (!req.user?.plexToken) {
       return res.status(400).json({ error: "No Plex token found for user" });

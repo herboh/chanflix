@@ -22,14 +22,17 @@ import restartFlag from '@server/utils/restartFlag';
 import { isPerson } from '@server/utils/typeHelpers';
 import { Router } from 'express';
 import authRoutes from './auth';
+import boardRoutes from './board';
 import collectionRoutes from './collection';
 import discoverRoutes, { createTmdbWithRegionLanguage } from './discover';
+import docsRoutes from './docs';
 import issueRoutes from './issue';
 import issueCommentRoutes from './issueComment';
 import mediaRoutes from './media';
 import movieRoutes from './movie';
 import personRoutes from './person';
 import requestRoutes from './request';
+import reviewRoutes from './review';
 import searchRoutes from './search';
 import serviceRoutes from './service';
 import tvRoutes from './tv';
@@ -150,6 +153,9 @@ router.use('/collection', isAuthenticated(), collectionRoutes);
 router.use('/service', isAuthenticated(), serviceRoutes);
 router.use('/issue', isAuthenticated(), issueRoutes);
 router.use('/issueComment', isAuthenticated(), issueCommentRoutes);
+router.use('/docs', isAuthenticated(), docsRoutes);
+router.use('/board', isAuthenticated(), boardRoutes);
+router.use('/review', isAuthenticated(), reviewRoutes);
 router.use('/auth', authRoutes);
 
 router.get('/regions', isAuthenticated(), async (req, res, next) => {

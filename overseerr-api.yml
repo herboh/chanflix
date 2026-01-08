@@ -3435,6 +3435,25 @@ paths:
                   type: string
               required:
                 - password
+  /auth/plex/launch:
+    get:
+      summary: Get Plex launch URL
+      description: Returns a URL to launch Plex with the user's authentication token.
+      tags:
+        - auth
+      responses:
+        '200':
+          description: Plex launch URL returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    example: 'https://app.plex.tv/desktop/'
+        '400':
+          description: No Plex token found for user
   /user:
     get:
       summary: Get all users
@@ -6388,6 +6407,218 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Issue'
+  /board:
+    get:
+      summary: Get board posts
+      description: Returns a paginated list of community board posts.
+      tags:
+        - community
+      parameters:
+        - in: query
+          name: take
+          schema:
+            type: number
+            nullable: true
+            example: 20
+        - in: query
+          name: skip
+          schema:
+            type: number
+            nullable: true
+            example: 0
+      responses:
+        '200':
+          description: Board posts returned
+    post:
+      summary: Create board post
+      description: Creates a new community board post.
+      tags:
+        - community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required:
+                - message
+      responses:
+        '201':
+          description: Board post created
+  /board/{postId}:
+    get:
+      summary: Get board post
+      description: Returns a single board post.
+      tags:
+        - community
+      parameters:
+        - in: path
+          name: postId
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Board post returned
+    put:
+      summary: Update board post
+      description: Updates a board post. Only the author can update.
+      tags:
+        - community
+      parameters:
+        - in: path
+          name: postId
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required:
+                - message
+      responses:
+        '200':
+          description: Board post updated
+    delete:
+      summary: Delete board post
+      description: Deletes a board post. Author or admin can delete.
+      tags:
+        - community
+      parameters:
+        - in: path
+          name: postId
+          required: true
+          schema:
+            type: number
+      responses:
+        '204':
+          description: Board post deleted
+  /review:
+    post:
+      summary: Create or update review
+      description: Creates or updates a review for a media item.
+      tags:
+        - community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mediaId:
+                  type: number
+                rating:
+                  type: number
+                  minimum: 1
+                  maximum: 5
+                content:
+                  type: string
+              required:
+                - mediaId
+                - rating
+      responses:
+        '201':
+          description: Review created or updated
+  /review/recent:
+    get:
+      summary: Get recent reviews
+      description: Returns a paginated list of recent reviews.
+      tags:
+        - community
+      parameters:
+        - in: query
+          name: take
+          schema:
+            type: number
+            nullable: true
+            example: 20
+        - in: query
+          name: skip
+          schema:
+            type: number
+            nullable: true
+            example: 0
+      responses:
+        '200':
+          description: Reviews returned
+  /review/media/{mediaId}:
+    get:
+      summary: Get reviews for media
+      description: Returns all reviews for a specific media item.
+      tags:
+        - community
+      parameters:
+        - in: path
+          name: mediaId
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Media reviews returned
+  /review/user:
+    get:
+      summary: Get user review
+      description: Returns the current user's review for a media item.
+      tags:
+        - community
+      parameters:
+        - in: query
+          name: mediaId
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          description: User review returned
+  /review/{reviewId}:
+    delete:
+      summary: Delete review
+      description: Deletes a review. Author or admin can delete.
+      tags:
+        - community
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema:
+            type: number
+      responses:
+        '204':
+          description: Review deleted
+  /docs/{docId}:
+    get:
+      summary: Get documentation
+      description: Returns documentation content by ID.
+      tags:
+        - docs
+      parameters:
+        - in: path
+          name: docId
+          required: true
+          schema:
+            type: string
+            enum: [user-guide, faq]
+      responses:
+        '200':
+          description: Documentation returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
   /keyword/{keywordId}:
     get:
       summary: Get keyword

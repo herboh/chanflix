@@ -191,6 +191,20 @@ class DiscordAgent
           color = EmbedColors.GREEN;
           break;
       }
+    } else if (payload.review) {
+      color = EmbedColors.GOLD;
+      fields.push(
+        {
+          name: 'Reviewed By',
+          value: payload.review.user.displayName,
+          inline: true,
+        },
+        {
+          name: 'Rating',
+          value: '⭐'.repeat(payload.review.rating),
+          inline: true,
+        }
+      );
     }
 
     for (const extra of payload.extra ?? []) {

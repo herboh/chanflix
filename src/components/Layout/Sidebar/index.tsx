@@ -3,6 +3,8 @@ import useClickOutside from "@app/hooks/useClickOutside";
 import { Permission, useUser } from "@app/hooks/useUser";
 import { Transition } from "@headlessui/react";
 import {
+  BookOpenIcon,
+  ChatBubbleLeftRightIcon,
   ClockIcon,
   CogIcon,
   ExclamationTriangleIcon,
@@ -27,6 +29,8 @@ export const menuMessages = defineMessages({
   users: "Users",
   settings: "Settings",
   watch: "Watch",
+  docs: "Docs",
+  community: "Community",
 });
 
 interface SidebarProps {
@@ -75,6 +79,18 @@ const SidebarLinks: SidebarLinkProps[] = [
     messagesKey: "watch", // Add this to `menuMessages` below
     svgIcon: <PlayIcon className="mr-3 h-6 w-6" />, // Reuse an icon or replace with a relevant one
     activeRegExp: /^\/watch$/, // Optional – highlight current route if any
+  },
+  {
+    href: "/docs",
+    messagesKey: "docs",
+    svgIcon: <BookOpenIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^\/docs/,
+  },
+  {
+    href: "/community/board",
+    messagesKey: "community",
+    svgIcon: <ChatBubbleLeftRightIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^\/community/,
   },
   {
     href: "/issues",
