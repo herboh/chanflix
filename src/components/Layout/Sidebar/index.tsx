@@ -164,7 +164,7 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
               leaveTo="opacity-0"
             >
               <div className="fixed inset-0">
-                <div className="absolute inset-0 bg-gray-900 opacity-90"></div>
+                <div className="absolute inset-0 bg-gruvbox-bg opacity-95"></div>
               </div>
             </Transition.Child>
             <Transition.Child
@@ -177,14 +177,14 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
               leaveTo="-translate-x-full"
             >
               <>
-                <div className="sidebar relative flex h-full w-full max-w-xs flex-1 flex-col bg-gray-800">
+                <div className="sidebar relative flex h-full w-full max-w-xs flex-1 flex-col bg-gruvbox-bg-hard">
                   <div className="sidebar-close-button absolute right-0 -mr-14 p-1">
                     <button
-                      className="flex h-12 w-12 items-center justify-center rounded-full focus:bg-gray-600 focus:outline-none"
+                      className="flex h-12 w-12 items-center justify-center border-2 border-gruvbox-bg3 bg-gruvbox-bg focus:bg-gruvbox-bg1 focus:outline-none"
                       aria-label="Close sidebar"
                       onClick={() => setClosed()}
                     >
-                      <XMarkIcon className="h-6 w-6 text-white" />
+                      <XMarkIcon className="h-6 w-6 text-gruvbox-fg" />
                     </button>
                   </div>
                   <div
@@ -192,7 +192,7 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                     className="flex flex-1 flex-col overflow-y-auto pt-8 pb-8 sm:pb-4"
                   >
                     <div className="flex flex-shrink-0 items-center px-2">
-                      <span className="px-4 text-xl text-gray-50">
+                      <span className="px-4 text-xl font-bold uppercase tracking-wider text-gruvbox-green-bright">
                         <a href="/">
                           <img src="/logo_full.svg" alt="Logo" />
                         </a>
@@ -222,11 +222,11 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                                   handlePlexLaunch();
                                 }
                               }}
-                              className={`flex items-center rounded-md px-2 py-2 text-base font-medium leading-6 text-white transition duration-150 ease-in-out focus:outline-none 
+                              className={`flex items-center px-2 py-2 text-base font-bold uppercase tracking-wide leading-6 text-gruvbox-fg transition-none focus:outline-none
                               ${
                                 router.pathname.match(sidebarLink.activeRegExp)
-                                  ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
-                                  : "hover:bg-gray-700 focus:bg-gray-700"
+                                  ? "border-l-4 border-gruvbox-green-bright bg-gruvbox-bg1 text-gruvbox-green-bright"
+                                  : "border-l-4 border-transparent hover:border-gruvbox-fg3 hover:bg-gruvbox-bg"
                               }`}
                             >
                               {sidebarLink.svgIcon}
@@ -251,11 +251,11 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                               }}
                               role="button"
                               tabIndex={0}
-                              className={`flex items-center rounded-md px-2 py-2 text-base font-medium leading-6 text-white transition duration-150 ease-in-out focus:outline-none
+                              className={`flex items-center px-2 py-2 text-base font-bold uppercase tracking-wide leading-6 text-gruvbox-fg transition-none focus:outline-none
                               ${
                                 router.pathname.match(sidebarLink.activeRegExp)
-                                  ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
-                                  : "hover:bg-gray-700 focus:bg-gray-700"
+                                  ? "border-l-4 border-gruvbox-green-bright bg-gruvbox-bg1 text-gruvbox-green-bright"
+                                  : "border-l-4 border-transparent hover:border-gruvbox-fg3 hover:bg-gruvbox-bg"
                               }`}
                               data-testid={`${sidebarLink.dataTestId}-mobile`}
                             >
@@ -286,7 +286,7 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
           <div className="flex h-0 flex-1 flex-col">
             <div className="flex flex-1 flex-col overflow-y-auto pt-8 pb-4">
               <div className="flex flex-shrink-0 items-center">
-                <span className="px-4 text-2xl text-gray-50">
+                <span className="px-4 text-2xl font-bold uppercase tracking-wider text-gruvbox-green-bright">
                   <a href="/">
                     <img src="/logo_full.svg" alt="Logo" />
                   </a>
@@ -312,11 +312,11 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                             handlePlexLaunch();
                           }
                         }}
-                        className={`group flex items-center rounded-md px-2 py-2 text-lg font-medium leading-6 text-white transition duration-150 ease-in-out focus:outline-none
+                        className={`group flex items-center px-2 py-2 text-lg font-bold uppercase tracking-wide leading-6 text-gruvbox-fg transition-none focus:outline-none
                         ${
                           router.pathname.match(sidebarLink.activeRegExp)
-                            ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
-                            : "hover:bg-gray-700 focus:bg-gray-700"
+                            ? "border-l-4 border-gruvbox-green-bright bg-gruvbox-bg1 text-gruvbox-green-bright"
+                            : "border-l-4 border-transparent hover:border-gruvbox-fg3 hover:bg-gruvbox-bg"
                         }`}
                       >
                         {sidebarLink.svgIcon}
@@ -333,11 +333,11 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                       as={sidebarLink.as}
                     >
                       <a
-                        className={`group flex items-center rounded-md px-2 py-2 text-lg font-medium leading-6 text-white transition duration-150 ease-in-out focus:outline-none
+                        className={`group flex items-center px-2 py-2 text-lg font-bold uppercase tracking-wide leading-6 text-gruvbox-fg transition-none focus:outline-none
                         ${
                           router.pathname.match(sidebarLink.activeRegExp)
-                            ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
-                            : "hover:bg-gray-700 focus:bg-gray-700"
+                            ? "border-l-4 border-gruvbox-green-bright bg-gruvbox-bg1 text-gruvbox-green-bright"
+                            : "border-l-4 border-transparent hover:border-gruvbox-fg3 hover:bg-gruvbox-bg"
                         }`}
                         data-testid={sidebarLink.dataTestId}
                       >

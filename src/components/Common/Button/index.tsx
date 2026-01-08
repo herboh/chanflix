@@ -46,37 +46,37 @@ function Button<P extends ElementTypes = 'button'>(
   ref?: React.Ref<Element<P>>
 ): JSX.Element {
   const buttonStyle = [
-    'inline-flex items-center justify-center border leading-5 font-medium rounded-md focus:outline-none transition ease-in-out duration-150 cursor-pointer disabled:opacity-50 whitespace-nowrap',
+    'inline-flex items-center justify-center border-2 leading-5 font-bold uppercase tracking-wide focus:outline-none transition-none cursor-pointer disabled:opacity-50 whitespace-nowrap',
   ];
   switch (buttonType) {
     case 'primary':
       buttonStyle.push(
-        'text-white border border-indigo-500 bg-indigo-600 bg-opacity-80 hover:bg-opacity-100 hover:border-indigo-500 focus:border-indigo-700 focus:ring-indigo active:bg-opacity-100 active:border-indigo-700'
+        'text-gruvbox-green border-gruvbox-green bg-gruvbox-bg hover:bg-gruvbox-green hover:text-gruvbox-bg focus:bg-gruvbox-green focus:text-gruvbox-bg active:bg-gruvbox-green-bright'
       );
       break;
     case 'danger':
       buttonStyle.push(
-        'text-white bg-red-600 bg-opacity-80 border-red-500 hover:bg-opacity-100 hover:border-red-500 focus:border-red-700 focus:ring-red active:bg-red-700 active:border-red-700'
+        'text-gruvbox-red-bright border-gruvbox-red bg-gruvbox-bg hover:bg-gruvbox-red hover:text-gruvbox-fg focus:bg-gruvbox-red active:bg-gruvbox-red-bright'
       );
       break;
     case 'warning':
       buttonStyle.push(
-        'text-white border border-yellow-500 bg-yellow-500 bg-opacity-80 hover:bg-opacity-100 hover:border-yellow-400 focus:border-yellow-700 focus:ring-yellow active:bg-opacity-100 active:border-yellow-700'
+        'text-gruvbox-yellow border-gruvbox-yellow bg-gruvbox-bg hover:bg-gruvbox-yellow hover:text-gruvbox-bg focus:bg-gruvbox-yellow active:bg-gruvbox-yellow-bright'
       );
       break;
     case 'success':
       buttonStyle.push(
-        'text-white bg-green-500 bg-opacity-80 border-green-500 hover:bg-opacity-100 hover:border-green-400 focus:border-green-700 focus:ring-green active:bg-opacity-100 active:border-green-700'
+        'text-gruvbox-green-bright border-gruvbox-green bg-gruvbox-bg hover:bg-gruvbox-green hover:text-gruvbox-bg focus:bg-gruvbox-green active:bg-gruvbox-green-bright'
       );
       break;
     case 'ghost':
       buttonStyle.push(
-        'text-white bg-transparent border-gray-600 hover:border-gray-200 focus:border-gray-100 active:border-gray-100'
+        'text-gruvbox-fg bg-transparent border-gruvbox-bg3 hover:border-gruvbox-fg3 hover:text-gruvbox-fg focus:border-gruvbox-fg active:border-gruvbox-fg'
       );
       break;
     default:
       buttonStyle.push(
-        'text-gray-200 bg-gray-800 bg-opacity-80 border-gray-600 hover:text-white hover:bg-gray-700 hover:border-gray-600 group-hover:text-white group-hover:bg-gray-700 group-hover:border-gray-600 focus:border-blue-300 focus:ring-blue active:text-gray-200 active:bg-gray-700 active:border-gray-600'
+        'text-gruvbox-fg bg-gruvbox-bg border-gruvbox-bg3 hover:border-gruvbox-fg3 hover:bg-gruvbox-bg1 group-hover:border-gruvbox-fg3 group-hover:bg-gruvbox-bg1 focus:border-gruvbox-aqua active:bg-gruvbox-bg2'
       );
   }
 

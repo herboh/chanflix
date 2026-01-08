@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import monospace font */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @layer base {
   html {
     min-height: calc(100% + env(safe-area-inset-top));
@@ -16,16 +19,29 @@
   }
 
   body {
-    @apply bg-gray-900;
+    @apply bg-gruvbox-bg-hard text-gruvbox-fg;
     -webkit-overflow-scrolling: touch;
+    /* Subtle scanline effect */
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
   }
 
   code {
-    @apply rounded-md bg-gray-800 px-2 py-1;
+    @apply border border-gruvbox-bg3 bg-gruvbox-bg px-2 py-1 text-gruvbox-green-bright;
   }
 
   input[type='search']::-webkit-search-cancel-button {
     -webkit-appearance: none;
+  }
+
+  /* Remove all rounded corners globally */
+  * {
+    border-radius: 0 !important;
   }
 }
 
@@ -36,10 +52,9 @@
   }
 
   .sidebar {
-    @apply border-r border-gray-700;
+    @apply border-r-2 border-gruvbox-bg3 bg-gruvbox-bg-hard;
     padding-top: env(safe-area-inset-top);
     padding-left: env(safe-area-inset-left);
-    background: linear-gradient(180deg, rgba(31, 41, 55, 1) 0%, #131928 100%);
   }
 
   .slideover {
@@ -52,12 +67,11 @@
   }
 
   .plex-button {
-    @apply flex w-full justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-center text-sm font-medium text-white transition duration-150 ease-in-out disabled:opacity-50;
-    background-color: #cc7b19;
+    @apply flex w-full justify-center border-2 border-gruvbox-orange bg-gruvbox-bg px-4 py-2 text-center text-sm font-bold uppercase tracking-wider text-gruvbox-orange transition-none disabled:opacity-50;
   }
 
   .plex-button:hover {
-    background: #f19a30;
+    @apply bg-gruvbox-orange text-gruvbox-bg;
   }
 
   ul.cards-vertical,
@@ -82,11 +96,16 @@
   }
 
   .slider-title {
-    @apply inline-flex items-center text-xl font-bold leading-7 text-gray-300 sm:truncate sm:text-2xl sm:leading-9;
+    @apply inline-flex items-center text-xl font-bold uppercase tracking-wide leading-7 text-gruvbox-fg sm:truncate sm:text-2xl sm:leading-9;
+  }
+
+  .slider-title::before {
+    content: '> ';
+    @apply text-gruvbox-green-bright;
   }
 
   a.slider-title {
-    @apply transition duration-300 hover:text-white;
+    @apply transition-none hover:text-gruvbox-yellow-bright;
   }
 
   a.slider-title svg {
@@ -109,7 +128,7 @@
   }
 
   .media-poster {
-    @apply w-32 overflow-hidden rounded shadow md:w-44 md:rounded-lg md:shadow-2xl xl:mr-4 xl:w-52;
+    @apply w-32 overflow-hidden border-2 border-gruvbox-bg3 shadow md:w-44 md:shadow-2xl xl:mr-4 xl:w-52;
   }
 
   .media-status {
@@ -117,23 +136,23 @@
   }
 
   .media-title {
-    @apply mt-4 flex flex-1 flex-col text-center text-white xl:mr-4 xl:mt-0 xl:text-left;
+    @apply mt-4 flex flex-1 flex-col text-center text-gruvbox-fg xl:mr-4 xl:mt-0 xl:text-left;
   }
 
   .media-title > h1 {
-    @apply text-2xl font-bold xl:text-4xl;
+    @apply text-2xl font-bold uppercase tracking-wide xl:text-4xl;
   }
 
   h1 .media-year {
-    @apply text-2xl;
+    @apply text-2xl text-gruvbox-fg3;
   }
 
   .media-attributes {
-    @apply mt-1 flex flex-wrap items-center justify-center space-x-1 text-xs text-gray-300 sm:text-sm xl:mt-0 xl:justify-start xl:text-base;
+    @apply mt-1 flex flex-wrap items-center justify-center space-x-1 text-xs text-gruvbox-fg2 sm:text-sm xl:mt-0 xl:justify-start xl:text-base;
   }
 
   .media-attributes a {
-    @apply transition duration-300 hover:text-white hover:underline;
+    @apply transition-none hover:text-gruvbox-yellow-bright hover:underline;
   }
 
   .media-actions {
@@ -145,7 +164,7 @@
   }
 
   .media-overview {
-    @apply flex flex-col pt-8 pb-4 text-white lg:flex-row;
+    @apply flex flex-col pt-8 pb-4 text-gruvbox-fg lg:flex-row;
   }
 
   .media-overview-left {
@@ -153,15 +172,20 @@
   }
 
   .tagline {
-    @apply mb-4 text-xl italic text-gray-400 lg:text-2xl;
+    @apply mb-4 text-xl italic text-gruvbox-fg3 lg:text-2xl;
   }
 
   .media-overview h2 {
-    @apply text-xl font-bold text-gray-300 sm:text-2xl;
+    @apply text-xl font-bold uppercase tracking-wide text-gruvbox-fg sm:text-2xl;
+  }
+
+  .media-overview h2::before {
+    content: '## ';
+    @apply text-gruvbox-aqua-bright;
   }
 
   .media-overview p {
-    @apply pt-2 text-sm text-gray-400 sm:text-base;
+    @apply pt-2 text-sm text-gruvbox-fg2 sm:text-base;
   }
 
   ul.media-crew {
@@ -169,13 +193,13 @@
   }
 
   ul.media-crew > li {
-    @apply col-span-1 flex flex-col font-bold text-gray-300;
+    @apply col-span-1 flex flex-col font-bold text-gruvbox-fg;
   }
 
   a.crew-name,
   .media-fact-value a,
   .media-fact-value button {
-    @apply font-normal text-gray-400 transition duration-300 hover:text-gray-100 hover:underline;
+    @apply font-normal text-gruvbox-fg2 transition-none hover:text-gruvbox-yellow-bright hover:underline;
   }
 
   .media-overview-right {
@@ -183,19 +207,19 @@
   }
 
   .media-facts {
-    @apply rounded-lg border border-gray-700 bg-gray-900 text-sm font-bold text-gray-300 shadow;
+    @apply border-2 border-gruvbox-bg3 bg-gruvbox-bg text-sm font-bold text-gruvbox-fg;
   }
 
   .media-fact {
-    @apply flex justify-between border-b border-gray-700 px-4 py-2 last:border-b-0;
+    @apply flex justify-between border-b border-gruvbox-bg3 px-4 py-2 last:border-b-0;
   }
 
   .media-fact-value {
-    @apply ml-2 text-right text-sm font-normal text-gray-400;
+    @apply ml-2 text-right text-sm font-normal text-gruvbox-fg2;
   }
 
   .media-ratings {
-    @apply flex items-center justify-center space-x-5 border-b border-gray-700 px-4 py-2 font-medium last:border-b-0;
+    @apply flex items-center justify-center space-x-5 border-b border-gruvbox-bg3 px-4 py-2 font-medium last:border-b-0;
   }
 
   .media-rating {
@@ -203,19 +227,19 @@
   }
 
   .error-message {
-    @apply relative top-0 bottom-0 left-0 right-0 flex h-screen flex-col items-center justify-center text-center text-gray-300;
+    @apply relative top-0 bottom-0 left-0 right-0 flex h-screen flex-col items-center justify-center text-center text-gruvbox-fg;
   }
 
   .heading {
-    @apply text-2xl font-bold leading-8 text-gray-100;
+    @apply text-2xl font-bold uppercase tracking-wide leading-8 text-gruvbox-fg;
   }
 
   .description {
-    @apply mt-1 max-w-4xl text-sm leading-5 text-gray-400;
+    @apply mt-1 max-w-4xl text-sm leading-5 text-gruvbox-fg2;
   }
 
   img.avatar-sm {
-    @apply mr-1 h-5 w-5 scale-100 transform-gpu rounded-full transition duration-300 group-hover:scale-105;
+    @apply mr-1 h-5 w-5 scale-100 transform-gpu transition-none border border-gruvbox-bg3;
   }
 
   .card-field {
@@ -223,15 +247,15 @@
   }
 
   .card-field-name {
-    @apply mr-2 font-bold;
+    @apply mr-2 font-bold text-gruvbox-aqua-bright;
   }
 
   .card-field a {
-    @apply transition duration-300 hover:text-white hover:underline;
+    @apply transition-none hover:text-gruvbox-yellow-bright hover:underline;
   }
 
   .section {
-    @apply mt-6 mb-10 text-white;
+    @apply mt-6 mb-10 text-gruvbox-fg;
   }
 
   .form-row {
@@ -239,20 +263,20 @@
   }
 
   .form-input-area {
-    @apply text-sm text-white sm:col-span-2;
+    @apply text-sm text-gruvbox-fg sm:col-span-2;
   }
 
   .form-input-field {
-    @apply flex max-w-xl rounded-md shadow-sm;
+    @apply flex max-w-xl;
   }
 
   .actions {
-    @apply mt-8 border-t border-gray-700 pt-5 text-white;
+    @apply mt-8 border-t-2 border-gruvbox-bg3 pt-5 text-gruvbox-fg;
   }
 
   label,
   .group-label {
-    @apply mb-1 block text-sm font-bold leading-5 text-gray-400;
+    @apply mb-1 block text-sm font-bold uppercase tracking-wide leading-5 text-gruvbox-fg3;
   }
 
   label.checkbox-label {
@@ -264,15 +288,15 @@
   }
 
   label a {
-    @apply text-gray-100 transition duration-300 hover:text-white hover:underline;
+    @apply text-gruvbox-fg transition-none hover:text-gruvbox-yellow-bright hover:underline;
   }
 
   .label-required {
-    @apply ml-1 text-red-500;
+    @apply ml-1 text-gruvbox-red-bright;
   }
 
   .label-tip {
-    @apply block font-medium text-gray-500;
+    @apply block font-medium text-gruvbox-fg4;
   }
 
   button,
@@ -283,26 +307,26 @@
   }
 
   input[type='checkbox'] {
-    @apply h-6 w-6 rounded-md text-indigo-600 transition duration-150 ease-in-out;
+    @apply h-6 w-6 border-2 border-gruvbox-bg3 bg-gruvbox-bg text-gruvbox-green transition-none;
   }
 
   input[type='text'],
   input[type='password'],
   select,
   textarea {
-    @apply block w-full min-w-0 flex-1 rounded-md border border-gray-500 bg-gray-700 text-white transition duration-150 ease-in-out sm:text-sm sm:leading-5;
+    @apply block w-full min-w-0 flex-1 border-2 border-gruvbox-bg3 bg-gruvbox-bg text-gruvbox-fg transition-none focus:border-gruvbox-green focus:ring-0 sm:text-sm sm:leading-5;
   }
 
   input.rounded-l-only,
   select.rounded-l-only,
   textarea.rounded-l-only {
-    @apply rounded-r-none;
+    @apply border-r-0;
   }
 
   input.rounded-r-only,
   select.rounded-r-only,
   textarea.rounded-r-only {
-    @apply rounded-l-none;
+    @apply border-l-0;
   }
 
   input.short {
@@ -318,7 +342,7 @@
   }
 
   button.input-action {
-    @apply relative -ml-px inline-flex items-center border border-gray-500 bg-indigo-600 bg-opacity-80 px-3 py-2 text-sm font-medium leading-5 text-white transition duration-150 ease-in-out last:rounded-r-md hover:bg-opacity-100 active:bg-gray-100 active:text-gray-700 sm:px-3.5;
+    @apply relative -ml-px inline-flex items-center border-2 border-gruvbox-green bg-gruvbox-bg px-3 py-2 text-sm font-bold uppercase tracking-wide leading-5 text-gruvbox-green transition-none hover:bg-gruvbox-green hover:text-gruvbox-bg sm:px-3.5;
   }
 
   .button-md svg,
@@ -340,15 +364,15 @@
   }
 
   .protocol {
-    @apply inline-flex cursor-default items-center rounded-l-md border border-r-0 border-gray-500 bg-gray-600 px-3 text-gray-100 sm:text-sm;
+    @apply inline-flex cursor-default items-center border-2 border-r-0 border-gruvbox-bg3 bg-gruvbox-bg1 px-3 text-gruvbox-fg3 sm:text-sm;
   }
 
   .error {
-    @apply mt-2 text-sm text-red-500;
+    @apply mt-2 text-sm text-gruvbox-red-bright;
   }
 
   .form-group {
-    @apply mt-6 text-white;
+    @apply mt-6 text-gruvbox-fg;
   }
 
   .toast {
@@ -360,63 +384,63 @@
   }
 
   .react-select-container .react-select__control {
-    @apply rounded-md border border-gray-500 bg-gray-700 text-white hover:border-gray-500;
+    @apply border-2 border-gruvbox-bg3 bg-gruvbox-bg text-gruvbox-fg hover:border-gruvbox-fg4;
   }
 
   .react-select-container-dark .react-select__control {
-    @apply border border-gray-700 bg-gray-800;
+    @apply border-2 border-gruvbox-bg2 bg-gruvbox-bg-hard;
   }
 
   .react-select-container .react-select__control--is-focused {
-    @apply rounded-md border border-gray-500 bg-gray-700 text-white shadow;
+    @apply border-2 border-gruvbox-green bg-gruvbox-bg text-gruvbox-fg shadow-none;
   }
 
   .react-select-container-dark .react-select__control--is-focused {
-    @apply border-gray-600 bg-gray-800;
+    @apply border-gruvbox-green bg-gruvbox-bg-hard;
   }
 
   .react-select-container .react-select__menu {
-    @apply bg-gray-700 text-gray-300;
+    @apply border-2 border-gruvbox-bg3 bg-gruvbox-bg text-gruvbox-fg;
   }
 
   .react-select-container-dark .react-select__menu {
-    @apply bg-gray-800;
+    @apply bg-gruvbox-bg-hard;
   }
 
   .react-select-container .react-select__option--is-focused {
-    @apply bg-gray-600 text-white;
+    @apply bg-gruvbox-bg2 text-gruvbox-fg;
   }
 
   .react-select-container-dark .react-select__option--is-focused {
-    @apply bg-gray-700;
+    @apply bg-gruvbox-bg1;
   }
 
   .react-select-container .react-select__indicator-separator {
-    @apply bg-gray-500;
+    @apply bg-gruvbox-bg3;
   }
 
   .react-select-container .react-select__indicator {
-    @apply text-gray-500;
+    @apply text-gruvbox-fg3;
   }
 
   .react-select-container .react-select__placeholder {
-    @apply text-gray-400;
+    @apply text-gruvbox-fg4;
   }
 
   .react-select-container .react-select__multi-value {
-    @apply rounded-md border border-gray-500 bg-gray-800;
+    @apply border border-gruvbox-bg3 bg-gruvbox-bg1;
   }
 
   .react-select-container .react-select__multi-value__label {
-    @apply text-white;
+    @apply text-gruvbox-fg;
   }
 
   .react-select-container .react-select__multi-value__remove {
-    @apply cursor-pointer rounded-r-md hover:bg-red-700 hover:text-red-100;
+    @apply cursor-pointer hover:bg-gruvbox-red hover:text-gruvbox-fg;
   }
 
   .react-select-container .react-select__input {
-    @apply border-none text-base shadow-sm ring-0;
+    @apply border-none text-base shadow-none ring-0;
   }
 
   .react-select-container .react-select__input input:focus {
@@ -425,15 +449,15 @@
   }
 
   .react-select-container .react-select__input-container {
-    @apply text-white;
+    @apply text-gruvbox-fg;
   }
 
   .react-select-container .react-select__single-value {
-    @apply text-sm text-gray-100;
+    @apply text-sm text-gruvbox-fg;
   }
 
   .react-select-container .react-select__placeholder {
-    @apply text-sm text-gray-500;
+    @apply text-sm text-gruvbox-fg4;
   }
 
   .datepicker-wrapper > button {
@@ -457,7 +481,7 @@
   }
 
   input[type='range']::-webkit-slider-thumb {
-    @apply rounded-full border-0 bg-indigo-500;
+    @apply border-2 border-gruvbox-green bg-gruvbox-bg;
     pointer-events: all;
     width: 16px;
     height: 16px;
@@ -465,7 +489,7 @@
   }
 
   input[type='range']::-moz-range-thumb {
-    @apply rounded-full border-0 bg-indigo-500;
+    @apply border-2 border-gruvbox-green bg-gruvbox-bg;
     pointer-events: all;
     width: 16px;
     height: 16px;
@@ -511,7 +535,7 @@
   }
 
   .text-overseerr {
-    @apply bg-gradient-to-br from-indigo-400 to-purple-400 bg-clip-text text-transparent;
+    @apply font-bold uppercase tracking-wider text-gruvbox-green-bright;
   }
 
   @media all and (display-mode: browser) {
