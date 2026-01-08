@@ -29,3 +29,9 @@ yarn-error.log*
 .temp/
 *.swp
 .vercel
+
+# Runtime data - not code, don't track
+config/cache/
+config/db/db.sqlite3
+config/db/db.sqlite3-shm
+config/db/db.sqlite3-wal
