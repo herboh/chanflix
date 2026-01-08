@@ -1,4 +1,3 @@
-.env
 # Dependencies
 node_modules/
 /.pnp
@@ -35,3 +34,8 @@ config/cache/
 config/db/db.sqlite3
 config/db/db.sqlite3-shm
 config/db/db.sqlite3-wal
+
+# reference 
+CLAUDE.md
+.claude/
+docs/
