@@ -35,7 +35,7 @@ const Error = ({ id, tmdbId, tvdbId, type, canExpand }: ErrorCardProps) => {
       data-testid="title-card"
     >
       <div
-        className="relative transform-gpu cursor-default overflow-hidden rounded-xl bg-gray-800 bg-cover shadow outline-none ring-1 ring-gray-700  transition duration-300"
+        className="relative transform-gpu cursor-default overflow-hidden rounded-xl bg-gruvbox-bg bg-cover shadow outline-none border-2 border-gruvbox-bg3 transition duration-300"
         style={{
           paddingBottom: '150%',
         }}
@@ -43,8 +43,8 @@ const Error = ({ id, tmdbId, tvdbId, type, canExpand }: ErrorCardProps) => {
         <div className="absolute inset-0 h-full w-full overflow-hidden">
           <div className="absolute left-0 right-0 flex items-center justify-between p-2">
             <div
-              className={`pointer-events-none z-40 rounded-full shadow ${
-                type === 'movie' ? 'bg-blue-500' : 'bg-purple-600'
+              className={`pointer-events-none z-40 rounded-full border shadow ${
+                type === 'movie' ? 'border-gruvbox-blue bg-gruvbox-blue' : 'border-gruvbox-aqua bg-gruvbox-aqua'
               }`}
             >
               <div className="flex h-4 items-center px-2 py-2 text-center text-xs font-medium uppercase tracking-wider text-white sm:h-5">
@@ -92,14 +92,14 @@ const Error = ({ id, tmdbId, tvdbId, type, canExpand }: ErrorCardProps) => {
                 }}
               >
                 <div className="flex items-center">
-                  <span className="mr-2 font-bold text-gray-400">
+                  <span className="mr-2 font-bold text-gruvbox-fg3">
                     {intl.formatMessage(messages.tmdbid)}
                   </span>
                   {tmdbId}
                 </div>
                 {!!tvdbId && (
                   <div className="mt-2 flex items-center sm:mt-1">
-                    <span className="mr-2 font-bold text-gray-400">
+                    <span className="mr-2 font-bold text-gruvbox-fg3">
                       {intl.formatMessage(messages.tvdbid)}
                     </span>
                     {tvdbId}
