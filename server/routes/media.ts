@@ -267,4 +267,33 @@ mediaRoutes.get<{ id: string }, MediaWatchDataResponse>(
   }
 );
 
+mediaRoutes.get<{ ratingKey: string }>(
+  '/watch-users/:ratingKey',
+  isAuthenticated(),
+  async (req, res) => {
+    const settings = getSettings().tautulli;
+
+    if (!settings.hostname || !settings.port || !settings.apiKey) {
+      return res.status(200).json([]);
+    }
+
+    try {
+      const tautulli = new TautulliAPI(settings);
+      const watchUsers = await tautulli.getMediaWatchUsers(
+        req.params.ratingKey
+      );
+
+      return res.status(200).json(watchUsers);
+    } catch (e) {
+      logger.warn('Failed to fetch media watch users', {
+        label: 'API',
+        ratingKey: req.params.ratingKey,
+        errorMessage: e instanceof Error ? e.message : 'Unknown error',
+      });
+
+      return res.status(200).json([]);
+    }
+  }
+);
+
 export default mediaRoutes;

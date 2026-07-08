@@ -20,6 +20,7 @@ import PersonCard from '@app/components/PersonCard';
 import RequestButton from '@app/components/RequestButton';
 import Slider from '@app/components/Slider';
 import StatusBadge from '@app/components/StatusBadge';
+import WatchedStatusBadge from '@app/components/WatchedStatusBadge';
 import useDeepLinks from '@app/hooks/useDeepLinks';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
@@ -349,6 +350,10 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   serviceUrl={data.mediaInfo?.serviceUrl4k}
                 />
               )}
+            <WatchedStatusBadge
+              ratingKey={data.mediaInfo?.ratingKey}
+              ratingKey4k={data.mediaInfo?.ratingKey4k}
+            />
           </div>
           <h1 data-testid="media-title">
             {data.title}{' '}

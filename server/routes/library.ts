@@ -201,20 +201,16 @@ libraryRoutes.get<
 
     // Get pending/processing items from database if status is 'all' or 'pending'
     if (status === 'all' || status === 'pending') {
-      const whereConditions: any = {
-        status: status === 'pending'
-          ? [MediaStatus.PENDING, MediaStatus.PROCESSING, MediaStatus.PARTIALLY_AVAILABLE]
-          : [MediaStatus.PENDING, MediaStatus.PROCESSING],
-      };
-
-      if (type !== 'all') {
-        whereConditions.mediaType = type === 'movie' ? MediaType.MOVIE : MediaType.TV;
-      }
+      const localStatuses = [
+        MediaStatus.PENDING,
+        MediaStatus.PROCESSING,
+        MediaStatus.PARTIALLY_AVAILABLE,
+      ];
 
       const pendingMedia = await mediaRepository
         .createQueryBuilder('media')
         .where('media.status IN (:...statuses)', {
-          statuses: [MediaStatus.PENDING, MediaStatus.PROCESSING, MediaStatus.PARTIALLY_AVAILABLE],
+          statuses: localStatuses,
         })
         .andWhere(type !== 'all' ? 'media.mediaType = :mediaType' : '1=1', {
           mediaType: type === 'movie' ? MediaType.MOVIE : MediaType.TV,
