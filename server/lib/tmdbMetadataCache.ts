@@ -104,11 +104,8 @@ export const setTmdbMetadata = async <T>({
   const expiresAt = new Date(fetchedAt.getTime() + ttlMs);
 
   try {
-    const existing = await repository.findOne({ where: { cacheKey } });
-
-    await repository.save(
+    await repository.upsert(
       new TmdbMetadataCache({
-        ...(existing ?? {}),
         cacheKey,
         mediaType,
         tmdbId,
@@ -117,7 +114,8 @@ export const setTmdbMetadata = async <T>({
         payload: JSON.stringify(payload),
         fetchedAt,
         expiresAt,
-      })
+      }),
+      ['cacheKey']
     );
   } catch (e) {
     logger.warn('Failed to write persistent TMDB metadata cache', {
