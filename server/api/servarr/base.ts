@@ -176,9 +176,9 @@ class ServarrBase<QueueItemAppendT> extends ExternalAPI {
 
   public getTags = async (): Promise<Tag[]> => {
     try {
-      const response = await this.axios.get<Tag[]>(`/tag`);
+      const data = await this.getRolling<Tag[]>(`/tag`, undefined, 3600);
 
-      return response.data;
+      return data;
     } catch (e) {
       throw new Error(
         `[${this.apiName}] Failed to retrieve tags: ${e.message}`

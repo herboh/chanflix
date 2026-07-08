@@ -16,6 +16,10 @@ import { getRepository } from '@server/datasource';
 import type { MediaRequestBody } from '@server/interfaces/api/requestInterfaces';
 import notificationManager, { Notification } from '@server/lib/notifications';
 import { Permission } from '@server/lib/permissions';
+import {
+  getRequestUserTagLabel,
+  isRequestUserTag,
+} from '@server/lib/requestTags';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { isEqual, truncate } from 'lodash';
@@ -763,8 +767,9 @@ export class MediaRequest {
         }
 
         if (radarrSettings.tagRequests) {
+          const userTagLabel = getRequestUserTagLabel(this.requestedBy);
           let userTag = (await radarr.getTags()).find((v) =>
-            v.label.startsWith(this.requestedBy.id + ' - ')
+            isRequestUserTag(v.label, this.requestedBy)
           );
           if (!userTag) {
             logger.info(`Requester has no active tag. Creating new`, {
@@ -772,11 +777,10 @@ export class MediaRequest {
               requestId: this.id,
               mediaId: this.media.id,
               userId: this.requestedBy.id,
-              newTag:
-                this.requestedBy.id + ' - ' + this.requestedBy.displayName,
+              newTag: userTagLabel,
             });
             userTag = await radarr.createTag({
-              label: this.requestedBy.id + ' - ' + this.requestedBy.displayName,
+              label: userTagLabel,
             });
           }
           if (userTag.id) {
@@ -1057,8 +1061,9 @@ export class MediaRequest {
         }
 
         if (sonarrSettings.tagRequests) {
+          const userTagLabel = getRequestUserTagLabel(this.requestedBy);
           let userTag = (await sonarr.getTags()).find((v) =>
-            v.label.startsWith(this.requestedBy.id + ' - ')
+            isRequestUserTag(v.label, this.requestedBy)
           );
           if (!userTag) {
             logger.info(`Requester has no active tag. Creating new`, {
@@ -1066,11 +1071,10 @@ export class MediaRequest {
               requestId: this.id,
               mediaId: this.media.id,
               userId: this.requestedBy.id,
-              newTag:
-                this.requestedBy.id + ' - ' + this.requestedBy.displayName,
+              newTag: userTagLabel,
             });
             userTag = await sonarr.createTag({
-              label: this.requestedBy.id + ' - ' + this.requestedBy.displayName,
+              label: userTagLabel,
             });
           }
           if (userTag.id) {

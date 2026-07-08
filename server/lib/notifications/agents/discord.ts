@@ -91,10 +91,16 @@ interface DiscordWebhookPayload {
   };
 }
 
+const DISCORD_MIN_SEND_INTERVAL_MS = 500;
+const DISCORD_MAX_RETRIES = 3;
+
 class DiscordAgent
   extends BaseAgent<NotificationAgentDiscord>
   implements NotificationAgent
 {
+  private queue: Promise<boolean> = Promise.resolve(true);
+  private lastSendAt = 0;
+
   protected getSettings(): NotificationAgentDiscord {
     if (this.settings) {
       return this.settings;
@@ -264,12 +270,26 @@ class DiscordAgent
       return true;
     }
 
-    logger.debug('Sending Discord notification', {
+    logger.debug('Queueing Discord notification', {
       label: 'Notifications',
       type: Notification[type],
       subject: payload.subject,
     });
 
+    const nextJob = this.queue.then(() =>
+      this.sendQueuedNotification(type, payload)
+    );
+
+    this.queue = nextJob.catch(() => false);
+
+    return nextJob;
+  }
+
+  private async sendQueuedNotification(
+    type: Notification,
+    payload: NotificationPayload
+  ): Promise<boolean> {
+    const settings = this.getSettings();
     const userMentions: string[] = [];
 
     try {
@@ -306,7 +326,7 @@ class DiscordAgent
         }
       }
 
-      await axios.post(settings.options.webhookUrl, {
+      await this.postWebhookWithBackoff(settings.options.webhookUrl, {
         username: settings.options.botUsername
           ? settings.options.botUsername
           : getSettings().main.applicationTitle,
@@ -327,6 +347,70 @@ class DiscordAgent
 
       return false;
     }
+  }
+
+  private async postWebhookWithBackoff(
+    webhookUrl: string,
+    payload: DiscordWebhookPayload
+  ): Promise<void> {
+    let attempt = 0;
+
+    while (attempt <= DISCORD_MAX_RETRIES) {
+      await this.waitForQueuePace();
+
+      try {
+        await axios.post(webhookUrl, payload, {
+          timeout: 10000,
+        });
+        this.lastSendAt = Date.now();
+        return;
+      } catch (e) {
+        if (!axios.isAxiosError(e) || e.response?.status !== 429) {
+          throw e;
+        }
+
+        attempt += 1;
+
+        const retryAfterMs = this.getDiscordRetryAfter(e.response.data);
+        logger.warn('Discord webhook rate limited; retrying notification', {
+          label: 'Notifications',
+          retryAfterMs,
+          attempt,
+        });
+
+        await this.sleep(retryAfterMs);
+      }
+    }
+
+    throw new Error('Discord webhook rate limit retry budget exhausted');
+  }
+
+  private async waitForQueuePace(): Promise<void> {
+    const elapsed = Date.now() - this.lastSendAt;
+    if (elapsed >= DISCORD_MIN_SEND_INTERVAL_MS) {
+      return;
+    }
+
+    await this.sleep(DISCORD_MIN_SEND_INTERVAL_MS - elapsed);
+  }
+
+  private getDiscordRetryAfter(responseData: unknown): number {
+    const retryAfter =
+      typeof responseData === 'object' &&
+      responseData !== null &&
+      'retry_after' in responseData
+        ? Number(responseData.retry_after)
+        : 1;
+
+    if (!Number.isFinite(retryAfter) || retryAfter <= 0) {
+      return 1000;
+    }
+
+    return retryAfter > 100 ? retryAfter : retryAfter * 1000;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 
