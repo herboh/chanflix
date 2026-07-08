@@ -3,6 +3,7 @@ import { UserType } from "@server/constants/user";
 import { getRepository } from "@server/datasource";
 import { User } from "@server/entity/User";
 import { Permission } from "@server/lib/permissions";
+import { buildPlexLaunchUrl } from "@server/lib/plexLaunch";
 import { getSettings } from "@server/lib/settings";
 import logger from "@server/logger";
 import { isAuthenticated } from "@server/middleware/auth";
@@ -425,8 +426,15 @@ authRoutes.get("/plex/launch", isAuthenticated(), async (req, res) => {
       return res.status(400).json({ error: "No Plex token found for user" });
     }
 
-    const baseUrl = "https://app.plex.tv/desktop/";
-    const plexUrl = `${baseUrl}?X-Plex-Token=${req.user.plexToken}`;
+    const settings = getSettings();
+    const ratingKey =
+      typeof req.query.ratingKey === "string" ? req.query.ratingKey : undefined;
+    const plexUrl = buildPlexLaunchUrl({
+      baseUrl: settings.plex.webAppUrl,
+      plexToken: req.user.plexToken,
+      machineId: settings.plex.machineId,
+      ratingKey,
+    });
 
     return res.json({ url: plexUrl });
   } catch (error) {

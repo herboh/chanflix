@@ -43,7 +43,7 @@ const formatTimeAgo = (dateString: string): string => {
 const LatestReviewWidget = () => {
   const { data, error } = useSWR<ReviewResponse>(
     '/api/v1/review/recent?take=3',
-    { refreshInterval: 120000 } // Refresh every 2 minutes
+    { refreshInterval: 300000 }
   );
 
   const isLoading = !data && !error;

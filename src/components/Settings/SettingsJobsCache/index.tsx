@@ -8,6 +8,7 @@ import Table from '@app/components/Common/Table';
 import useLocale from '@app/hooks/useLocale';
 import globalMessages from '@app/i18n/globalMessages';
 import { formatBytes } from '@app/utils/numberHelpers';
+import { POLLING_INTERVALS } from '@app/utils/pollingIntervals';
 import { Transition } from '@headlessui/react';
 import { PlayIcon, StopIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { PencilIcon } from '@heroicons/react/24/solid';
@@ -142,13 +143,13 @@ const SettingsJobs = () => {
     error,
     mutate: revalidate,
   } = useSWR<Job[]>('/api/v1/settings/jobs', {
-    refreshInterval: 5000,
+    refreshInterval: POLLING_INTERVALS.jobs,
   });
   const { data: appData } = useSWR('/api/v1/status/appdata');
   const { data: cacheData, mutate: cacheRevalidate } = useSWR<CacheResponse>(
     '/api/v1/settings/cache',
     {
-      refreshInterval: 10000,
+      refreshInterval: POLLING_INTERVALS.cacheStats,
     }
   );
 

@@ -7,6 +7,7 @@ import SensitiveInput from '@app/components/Common/SensitiveInput';
 import LibraryItem from '@app/components/Settings/LibraryItem';
 import SettingsBadge from '@app/components/Settings/SettingsBadge';
 import globalMessages from '@app/i18n/globalMessages';
+import { POLLING_INTERVALS } from '@app/utils/pollingIntervals';
 import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
 import {
   ArrowPathIcon,
@@ -125,7 +126,8 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
   const { data: dataSync, mutate: revalidateSync } = useSWR<SyncStatus>(
     '/api/v1/settings/plex/sync',
     {
-      refreshInterval: 1000,
+      refreshInterval: (sync) =>
+        sync?.running ? POLLING_INTERVALS.plexSyncActive : 0,
     }
   );
   const intl = useIntl();

@@ -36,6 +36,12 @@ tags:
     description: Endpoints related to retrieving collection details.
   - name: service
     description: Endpoints related to getting service (Radarr/Sonarr) details.
+  - name: library
+    description: Endpoints related to local Plex/library views.
+  - name: downloads
+    description: Endpoints related to Radarr/Sonarr download status.
+  - name: stats
+    description: Endpoints related to recent server activity and operational summaries.
 servers:
   - url: '{server}/api/v1'
     variables:
@@ -3286,6 +3292,142 @@ paths:
                   appDataPath:
                     type: string
                     example: /app/config
+  /library:
+    get:
+      summary: Get local library items
+      description: Returns a paginated view of Plex and requested media known to Chanflix.
+      tags:
+        - library
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [movie, tv, all]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [available, pending, all]
+        - in: query
+          name: take
+          schema:
+            type: number
+        - in: query
+          name: skip
+          schema:
+            type: number
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [title, added, year]
+      responses:
+        '200':
+          description: Library items returned
+          content:
+            application/json:
+              schema:
+                type: object
+  /downloads:
+    get:
+      summary: Get active downloads
+      description: Returns active Radarr/Sonarr downloads and recent completed or cleared download history. Requires request-management permissions.
+      tags:
+        - downloads
+      responses:
+        '200':
+          description: Downloads returned
+          content:
+            application/json:
+              schema:
+                type: object
+  /stats/popular:
+    get:
+      summary: Get popular Plex content
+      description: Returns popular content from Tautulli when configured.
+      tags:
+        - stats
+      parameters:
+        - in: query
+          name: days
+          schema:
+            type: number
+        - in: query
+          name: take
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Popular content returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /stats/activity:
+    get:
+      summary: Get Plex watch activity
+      description: Returns recent global watch history from Tautulli when configured.
+      tags:
+        - stats
+      parameters:
+        - in: query
+          name: take
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Watch activity returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /stats/recent:
+    get:
+      summary: Get recent activity
+      description: Returns a combined list of recent requests, watches, and downloads.
+      tags:
+        - stats
+      parameters:
+        - in: query
+          name: take
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Recent activity returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /stats/pending-requests:
+    get:
+      summary: Get pending request summaries
+      description: Returns Operations-friendly summaries for pending requests. Requires request-management permissions.
+      tags:
+        - stats
+      parameters:
+        - in: query
+          name: take
+          schema:
+            type: number
+        - in: query
+          name: skip
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Pending request summaries returned
+          content:
+            application/json:
+              schema:
+                type: object
   /auth/me:
     get:
       summary: Get logged-in user
@@ -3438,9 +3580,14 @@ paths:
   /auth/plex/launch:
     get:
       summary: Get Plex launch URL
-      description: Returns a URL to launch Plex with the user's authentication token.
+      description: Returns a URL to launch Plex with the user's authentication token. If a Plex rating key is provided, the URL will deep-link to that media item.
       tags:
         - auth
+      parameters:
+        - in: query
+          name: ratingKey
+          schema:
+            type: string
       responses:
         '200':
           description: Plex launch URL returned
@@ -5740,6 +5887,46 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/MediaInfo'
+  /media/watch-users/{ratingKey}:
+    get:
+      summary: Get media watch users
+      description: |
+        Returns Tautulli users who have watched the media item for the provided
+        Plex rating key.
+
+        Requires the `ADMIN` permission.
+      tags:
+        - media
+      parameters:
+        - in: path
+          name: ratingKey
+          description: Plex rating key
+          required: true
+          example: '12345'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Watch users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    friendly_name:
+                      type: string
+                    user_id:
+                      type: number
+                    user_thumb:
+                      type: string
+                    username:
+                      type: string
+                    total_plays:
+                      type: number
+                    total_time:
+                      type: number
   /media/{mediaId}:
     delete:
       summary: Delete media item

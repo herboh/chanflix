@@ -9,6 +9,7 @@ import useDebouncedState from '@app/hooks/useDebouncedState';
 import { useUpdateQueryParams } from '@app/hooks/useUpdateQueryParams';
 import globalMessages from '@app/i18n/globalMessages';
 import Error from '@app/pages/_error';
+import { POLLING_INTERVALS } from '@app/utils/pollingIntervals';
 import { Transition } from '@headlessui/react';
 import {
   ChevronLeftIcon,
@@ -63,7 +64,9 @@ const SettingsLogs = () => {
   const [currentPageSize, setCurrentPageSize] = useState(25);
   const [searchFilter, debouncedSearchFilter, setSearchFilter] =
     useDebouncedState('');
-  const [refreshInterval, setRefreshInterval] = useState(5000);
+  const [refreshInterval, setRefreshInterval] = useState(
+    POLLING_INTERVALS.logs
+  );
   const [activeLog, setActiveLog] = useState<{
     isOpen: boolean;
     log?: LogMessage;
@@ -74,7 +77,7 @@ const SettingsLogs = () => {
   const updateQueryParams = useUpdateQueryParams({ page: page.toString() });
 
   const toggleLogs = () => {
-    setRefreshInterval(refreshInterval === 5000 ? 0 : 5000);
+    setRefreshInterval(refreshInterval ? 0 : POLLING_INTERVALS.logs);
   };
 
   const { data, error } = useSWR<LogsResultsResponse>(

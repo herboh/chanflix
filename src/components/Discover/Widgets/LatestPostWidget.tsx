@@ -37,7 +37,7 @@ const formatTimeAgo = (dateString: string): string => {
 const LatestPostWidget = () => {
   const { data, error } = useSWR<BoardResponse>(
     '/api/v1/board?take=3',
-    { refreshInterval: 60000 } // Refresh every minute
+    { refreshInterval: 180000 }
   );
 
   const isLoading = !data && !error;
