@@ -1,11 +1,12 @@
-import PlexAPI, { PlexLibraryItem } from '@server/api/plexapi';
+import PlexAPI from '@server/api/plexapi';
 import TheMovieDb from '@server/api/themoviedb';
+import { MediaStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import { User } from '@server/entity/User';
-import { MediaStatus, MediaType } from '@server/constants/media';
-import { getSettings } from '@server/lib/settings';
 import cacheManager from '@server/lib/cache';
+import { Permission } from '@server/lib/permissions';
+import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { isAuthenticated } from '@server/middleware/auth';
 import { Router } from 'express';
@@ -46,6 +47,24 @@ const getYearFromDate = (date?: string): number | undefined => {
 
 const isPlaceholderTitle = (title: string): boolean =>
   title.startsWith('Media #');
+
+const getAdminPlexTokenOwner = async (): Promise<
+  Pick<User, 'id' | 'plexToken'> | undefined
+> => {
+  const user = await getRepository(User)
+    .createQueryBuilder('user')
+    .addSelect('user.plexToken')
+    .where('(user.permissions & :adminPermission) = :adminPermission', {
+      adminPermission: Permission.ADMIN,
+    })
+    .andWhere("user.plexToken != ''")
+    .orderBy('user.id', 'ASC')
+    .getOne();
+
+  return user && user.plexToken
+    ? { id: user.id, plexToken: user.plexToken }
+    : undefined;
+};
 
 const enrichLibraryItem = async (
   tmdbClient: TheMovieDb,
@@ -114,14 +133,37 @@ libraryRoutes.get<
   const skip = Number(req.query.skip) || 0;
   const sort = req.query.sort || 'added';
   const cache = cacheManager.getCache('library').data;
-  const cacheKey = JSON.stringify({ type, status, take, skip, sort });
-  const cachedResponse = cache.get<LibraryResponse>(cacheKey);
-
-  if (cachedResponse) {
-    return res.status(200).json(cachedResponse);
-  }
 
   try {
+    const activeUser = req.user?.id
+      ? await userRepository.findOne({
+          select: { id: true, plexToken: true },
+          where: { id: req.user.id },
+        })
+      : undefined;
+    let plexToken = activeUser?.plexToken;
+    let plexIdentity = plexToken ? `user:${activeUser?.id}` : 'none';
+
+    if (!plexToken && req.user?.hasPermission(Permission.MANAGE_REQUESTS)) {
+      const admin = await getAdminPlexTokenOwner();
+      plexToken = admin?.plexToken;
+      plexIdentity = plexToken ? `admin:${admin?.id}` : 'none';
+    }
+
+    const cacheKey = JSON.stringify({
+      type,
+      status,
+      take,
+      skip,
+      sort,
+      plexIdentity,
+    });
+    const cachedResponse = cache.get<LibraryResponse>(cacheKey);
+
+    if (cachedResponse) {
+      return res.status(200).json(cachedResponse);
+    }
+
     const allItems: LibraryItem[] = [];
 
     // Get available items from Plex if status is 'all' or 'available'
@@ -129,72 +171,78 @@ libraryRoutes.get<
       const plexSettings = settings.plex;
 
       if (plexSettings.ip && plexSettings.libraries.length > 0) {
-        try {
-          const admin = await userRepository.findOne({
-            select: { id: true, plexToken: true },
-            where: { id: 1 },
+        if (!plexToken) {
+          logger.warn('No Plex token available for library fetch', {
+            label: 'Library API',
+            userId: req.user?.id,
           });
-          const plexToken = req.user?.plexToken || admin?.plexToken;
+        } else {
+          try {
+            const plexClient = new PlexAPI({ plexToken });
 
-          if (!plexToken) {
-            logger.warn('No Plex token available for library fetch', {
+            for (const library of plexSettings.libraries) {
+              if (!library.enabled) continue;
+
+              // Filter by type
+              if (type !== 'all') {
+                if (type === 'movie' && library.type !== 'movie') continue;
+                if (type === 'tv' && library.type !== 'show') continue;
+              }
+
+              try {
+                const { items } = await plexClient.getLibraryContents(
+                  library.id,
+                  {
+                    offset: 0,
+                    size: 500, // Get up to 500 items per library
+                  }
+                );
+
+                for (const item of items) {
+                  if (item.type === 'movie' || item.type === 'show') {
+                    // Extract TMDB ID from GUIDs
+                    let tmdbId: number | undefined;
+                    if (item.Guid) {
+                      const tmdbGuid = item.Guid.find((g) =>
+                        g.id.startsWith('tmdb://')
+                      );
+                      if (tmdbGuid) {
+                        tmdbId = parseInt(
+                          tmdbGuid.id.replace('tmdb://', ''),
+                          10
+                        );
+                      }
+                    }
+
+                    allItems.push({
+                      ratingKey: item.ratingKey,
+                      title: item.title,
+                      mediaType: item.type === 'show' ? 'tv' : 'movie',
+                      status: 'available',
+                      addedAt: item.addedAt,
+                      tmdbId,
+                    });
+                  }
+                }
+              } catch (libError) {
+                logger.warn(`Failed to fetch library ${library.name}`, {
+                  label: 'Library API',
+                  errorMessage:
+                    libError instanceof Error
+                      ? libError.message
+                      : 'Unknown error',
+                });
+              }
+            }
+          } catch (plexError) {
+            logger.warn('Failed to connect to Plex', {
               label: 'Library API',
-              userId: req.user?.id,
+              errorMessage:
+                plexError instanceof Error
+                  ? plexError.message
+                  : 'Unknown error',
             });
           }
-
-          const plexClient = new PlexAPI({ plexToken });
-
-          for (const library of plexSettings.libraries) {
-            if (!library.enabled) continue;
-
-            // Filter by type
-            if (type !== 'all') {
-              if (type === 'movie' && library.type !== 'movie') continue;
-              if (type === 'tv' && library.type !== 'show') continue;
-            }
-
-            try {
-              const { items } = await plexClient.getLibraryContents(library.id, {
-                offset: 0,
-                size: 500, // Get up to 500 items per library
-              });
-
-              for (const item of items) {
-                if (item.type === 'movie' || item.type === 'show') {
-                  // Extract TMDB ID from GUIDs
-                  let tmdbId: number | undefined;
-                  if (item.Guid) {
-                    const tmdbGuid = item.Guid.find((g) =>
-                      g.id.startsWith('tmdb://')
-                    );
-                    if (tmdbGuid) {
-                      tmdbId = parseInt(tmdbGuid.id.replace('tmdb://', ''), 10);
-                    }
-                  }
-
-                  allItems.push({
-                    ratingKey: item.ratingKey,
-                    title: item.title,
-                    mediaType: item.type === 'show' ? 'tv' : 'movie',
-                    status: 'available',
-                    addedAt: item.addedAt,
-                    tmdbId,
-                  });
-                }
-              }
-            } catch (libError) {
-              logger.warn(`Failed to fetch library ${library.name}`, {
-                label: 'Library API',
-                errorMessage: libError instanceof Error ? libError.message : 'Unknown error',
-              });
-            }
-          }
-        } catch (plexError) {
-          logger.warn('Failed to connect to Plex', {
-            label: 'Library API',
-            errorMessage: plexError instanceof Error ? plexError.message : 'Unknown error',
-          });
         }
       }
     }
@@ -220,7 +268,8 @@ libraryRoutes.get<
       for (const media of pendingMedia) {
         // Check if we already have this item from Plex
         const existsInPlex = allItems.some(
-          (item) => item.tmdbId === media.tmdbId && item.mediaType === media.mediaType
+          (item) =>
+            item.tmdbId === media.tmdbId && item.mediaType === media.mediaType
         );
 
         if (!existsInPlex) {
@@ -269,9 +318,9 @@ libraryRoutes.get<
     const total = allItems.length;
     const tmdbClient = new TheMovieDb();
     const paginatedItems = await Promise.all(
-      allItems.slice(skip, skip + take).map((item) =>
-        enrichLibraryItem(tmdbClient, item)
-      )
+      allItems
+        .slice(skip, skip + take)
+        .map((item) => enrichLibraryItem(tmdbClient, item))
     );
 
     const response = {

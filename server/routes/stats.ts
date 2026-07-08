@@ -1,8 +1,8 @@
-import TheMovieDb from '@server/api/themoviedb';
 import TautulliAPI, {
   TautulliHistoryRecord,
   TautulliHomeStatItem,
 } from '@server/api/tautulli';
+import TheMovieDb from '@server/api/themoviedb';
 import { MediaRequestStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import { MediaRequest } from '@server/entity/MediaRequest';
@@ -260,11 +260,13 @@ statsRoutes.get<
     [Permission.MANAGE_REQUESTS, Permission.REQUEST_VIEW],
     { type: 'or' }
   );
+  const canViewDownloads = req.user?.hasPermission(Permission.MANAGE_REQUESTS);
   const cache = cacheManager.getCache('stats').data;
   const cacheKey = JSON.stringify({
     route: 'recent',
     take,
     userId: canViewAllRequests ? 'all' : req.user?.id,
+    downloads: canViewDownloads,
   });
   const cachedResponse = cache.get<RecentActivityItem[]>(cacheKey);
 
@@ -325,21 +327,24 @@ statsRoutes.get<
           : undefined,
     }));
 
-    const downloads = downloadTracker.getAllDownloads();
-    const downloadActivities: RecentActivityItem[] = [
-      ...downloads.movies,
-      ...downloads.tv,
-    ].map((item, index) => ({
-      id: `download-${item.mediaType}-${item.externalId}-${index}`,
-      type: 'download',
-      occurredAt: new Date().toISOString(),
-      mediaType: item.mediaType,
-      mediaTitle: item.title,
-      status: item.status,
-    }));
-    const recentDownloadActivities: RecentActivityItem[] = (
-      await downloadTracker.getRecentDownloads()
-    ).map((item, index) => ({
+    let downloadActivities: RecentActivityItem[] = [];
+    let recentDownloadActivities: RecentActivityItem[] = [];
+
+    if (canViewDownloads) {
+      const downloads = downloadTracker.getAllDownloads();
+      downloadActivities = [...downloads.movies, ...downloads.tv].map(
+        (item, index) => ({
+          id: `download-${item.mediaType}-${item.externalId}-${index}`,
+          type: 'download',
+          occurredAt: new Date().toISOString(),
+          mediaType: item.mediaType,
+          mediaTitle: item.title,
+          status: item.status,
+        })
+      );
+      recentDownloadActivities = (
+        await downloadTracker.getRecentDownloads()
+      ).map((item, index) => ({
         id: `recent-download-${item.mediaType}-${item.externalId}-${index}`,
         type: 'download',
         occurredAt: item.completedAt.toISOString(),
@@ -347,6 +352,7 @@ statsRoutes.get<
         mediaTitle: item.title,
         status: item.outcome,
       }));
+    }
 
     const response = [
       ...requestActivities,
