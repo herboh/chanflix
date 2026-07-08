@@ -9,6 +9,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { CheckCircleIcon } from '@heroicons/react/24/solid';
+import { POLLING_INTERVALS } from '@app/utils/pollingIntervals';
 import useSWR from 'swr';
 
 interface DownloadingItem {
@@ -131,7 +132,7 @@ const Downloads = () => {
   const { data, error, isLoading } = useSWR<DownloadsResponse>(
     '/api/v1/downloads',
     {
-      refreshInterval: 10000, // Refresh every 10 seconds
+      refreshInterval: POLLING_INTERVALS.activeDownloads,
     }
   );
 

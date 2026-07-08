@@ -3,24 +3,24 @@ import useClickOutside from '@app/hooks/useClickOutside';
 import { Permission, useUser } from '@app/hooks/useUser';
 import { Transition } from '@headlessui/react';
 import {
-  BookOpenIcon,
   ChatBubbleLeftRightIcon,
   ClockIcon,
   CogIcon,
   EllipsisHorizontalIcon,
   ExclamationTriangleIcon,
   FilmIcon,
+  RectangleGroupIcon,
   SparklesIcon,
   TvIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
 import {
-  BookOpenIcon as FilledBookOpenIcon,
   ChatBubbleLeftRightIcon as FilledChatBubbleLeftRightIcon,
   ClockIcon as FilledClockIcon,
   CogIcon as FilledCogIcon,
   ExclamationTriangleIcon as FilledExclamationTriangleIcon,
   FilmIcon as FilledFilmIcon,
+  RectangleGroupIcon as FilledRectangleGroupIcon,
   SparklesIcon as FilledSparklesIcon,
   TvIcon as FilledTvIcon,
   UsersIcon as FilledUsersIcon,
@@ -89,18 +89,19 @@ const MobileMenu = () => {
       activeRegExp: /^\/requests/,
     },
     {
-      href: '/docs',
-      content: intl.formatMessage(menuMessages.docs),
-      svgIcon: <BookOpenIcon className="h-6 w-6" />,
-      svgIconSelected: <FilledBookOpenIcon className="h-6 w-6" />,
-      activeRegExp: /^\/docs/,
-    },
-    {
       href: '/community/board',
       content: intl.formatMessage(menuMessages.community),
       svgIcon: <ChatBubbleLeftRightIcon className="h-6 w-6" />,
       svgIconSelected: <FilledChatBubbleLeftRightIcon className="h-6 w-6" />,
       activeRegExp: /^\/community/,
+    },
+    {
+      href: '/operations',
+      content: intl.formatMessage(menuMessages.operations),
+      svgIcon: <RectangleGroupIcon className="h-6 w-6" />,
+      svgIconSelected: <FilledRectangleGroupIcon className="h-6 w-6" />,
+      activeRegExp: /^\/operations/,
+      requiredPermission: Permission.MANAGE_REQUESTS,
     },
     {
       href: '/issues',

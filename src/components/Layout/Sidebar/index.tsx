@@ -4,13 +4,13 @@ import { Permission, useUser } from "@app/hooks/useUser";
 import { Transition } from "@headlessui/react";
 import {
   ArrowDownTrayIcon,
-  BookOpenIcon,
   ChatBubbleLeftRightIcon,
   ClockIcon,
   CogIcon,
   ExclamationTriangleIcon,
   FilmIcon,
   FolderIcon,
+  RectangleGroupIcon,
   PlayIcon,
   SparklesIcon,
   TvIcon,
@@ -30,11 +30,11 @@ export const menuMessages = defineMessages({
   issues: "Issues",
   users: "Users",
   settings: "Settings",
-  watch: "Watch",
-  docs: "Docs",
+  watch: "Open Plex",
   community: "Community",
   downloads: "Downloads",
   library: "Library",
+  operations: "Operations",
 });
 
 interface SidebarProps {
@@ -80,15 +80,9 @@ const SidebarLinks: SidebarLinkProps[] = [
   },
   {
     href: "#", // We will dynamically handle the href
-    messagesKey: "watch", // Add this to `menuMessages` below
-    svgIcon: <PlayIcon className="mr-3 h-6 w-6" />, // Reuse an icon or replace with a relevant one
-    activeRegExp: /^\/watch$/, // Optional – highlight current route if any
-  },
-  {
-    href: "/docs",
-    messagesKey: "docs",
-    svgIcon: <BookOpenIcon className="mr-3 h-6 w-6" />,
-    activeRegExp: /^\/docs/,
+    messagesKey: "watch",
+    svgIcon: <PlayIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^$/,
   },
   {
     href: "/community/board",
@@ -97,10 +91,18 @@ const SidebarLinks: SidebarLinkProps[] = [
     activeRegExp: /^\/community/,
   },
   {
+    href: "/operations",
+    messagesKey: "operations",
+    svgIcon: <RectangleGroupIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^\/operations/,
+    requiredPermission: Permission.MANAGE_REQUESTS,
+  },
+  {
     href: "/downloads",
     messagesKey: "downloads",
     svgIcon: <ArrowDownTrayIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/downloads/,
+    requiredPermission: Permission.MANAGE_REQUESTS,
   },
   {
     href: "/library",

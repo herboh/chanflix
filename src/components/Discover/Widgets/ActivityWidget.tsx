@@ -1,22 +1,48 @@
+import {
+  ArrowDownTrayIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  PlayIcon,
+  XCircleIcon,
+} from '@heroicons/react/24/outline';
+import Link from 'next/link';
 import useSWR from 'swr';
-import { ClockIcon } from '@heroicons/react/24/outline';
-import { PlayIcon } from '@heroicons/react/24/solid';
 
-interface ActivityItem {
-  date: number;
-  friendly_name: string;
-  full_title: string;
-  media_type: string;
-  title: string;
-  grandparent_title?: string;
-  parent_title?: string;
-  rating_key: number;
-  user: string;
-  percent_complete: number;
-}
+type ActivityItem =
+  | {
+      id: string;
+      type: 'request';
+      occurredAt: string;
+      user: string;
+      mediaType: 'movie' | 'tv';
+      mediaTitle: string;
+      tmdbId: number;
+      status: 'pending' | 'approved' | 'declined' | 'failed';
+      is4k: boolean;
+    }
+  | {
+      id: string;
+      type: 'watch';
+      occurredAt: string;
+      user: string;
+      mediaType: 'movie' | 'episode';
+      mediaTitle: string;
+      episodeTitle?: string;
+    }
+  | {
+      id: string;
+      type: 'download';
+      occurredAt: string;
+      mediaType: 'movie' | 'tv';
+      mediaTitle: string;
+      status: string;
+    };
 
-const formatTimeAgo = (timestamp: number): string => {
-  const seconds = Math.floor(Date.now() / 1000 - timestamp);
+const formatTimeAgo = (timestamp: string): string => {
+  const seconds = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000)
+  );
 
   if (seconds < 60) return 'just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
@@ -25,10 +51,92 @@ const formatTimeAgo = (timestamp: number): string => {
   return `${Math.floor(seconds / 604800)}w ago`;
 };
 
+const getStatusIcon = (item: ActivityItem) => {
+  if (item.type === 'watch') {
+    return <PlayIcon className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />;
+  }
+
+  if (item.type === 'download') {
+    return (
+      <ArrowDownTrayIcon className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
+    );
+  }
+
+  switch (item.status) {
+    case 'approved':
+      return (
+        <CheckCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-purple-400" />
+      );
+    case 'declined':
+    case 'failed':
+      return <XCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />;
+    case 'pending':
+    default:
+      return <ClockIcon className="mt-0.5 h-4 w-4 shrink-0 text-yellow-400" />;
+  }
+};
+
+const getPrimaryText = (item: ActivityItem) => {
+  if (item.type === 'watch') {
+    return (
+      <>
+        <span className="font-medium">{item.user}</span>
+        <span className="text-gray-400"> watched </span>
+        <span className="font-medium">{item.mediaTitle}</span>
+      </>
+    );
+  }
+
+  if (item.type === 'download') {
+    return (
+      <>
+        <span className="text-gray-400">Downloading </span>
+        <span className="font-medium">{item.mediaTitle}</span>
+      </>
+    );
+  }
+
+  const statusText =
+    item.status === 'pending'
+      ? ' requested '
+      : item.status === 'approved'
+      ? ' was approved for '
+      : item.status === 'declined'
+      ? ' was declined for '
+      : ' hit a request error for ';
+
+  return (
+    <>
+      <span className="font-medium">{item.user}</span>
+      <span className="text-gray-400">{statusText}</span>
+      <Link href={`/${item.mediaType}/${item.tmdbId}`}>
+        <a className="font-medium hover:underline">
+          {item.mediaTitle}
+          {item.is4k ? ' 4K' : ''}
+        </a>
+      </Link>
+    </>
+  );
+};
+
+const getSecondaryText = (item: ActivityItem) => {
+  const timeAgo = formatTimeAgo(item.occurredAt);
+
+  if (item.type === 'watch' && item.episodeTitle) {
+    return `${timeAgo} · ${item.episodeTitle}`;
+  }
+
+  if (item.type === 'download') {
+    return `${timeAgo} · ${item.status}`;
+  }
+
+  return timeAgo;
+};
+
 const ActivityWidget = () => {
   const { data, error } = useSWR<ActivityItem[]>(
-    '/api/v1/stats/activity?take=5',
-    { refreshInterval: 60000 } // Refresh every minute
+    '/api/v1/stats/recent?take=6',
+    { refreshInterval: 120000 }
   );
 
   const isLoading = !data && !error;
@@ -56,25 +164,16 @@ const ActivityWidget = () => {
         </div>
       ) : (
         <ul className="space-y-2">
-          {data.map((item, index) => (
-            <li key={`${item.rating_key}-${item.date}-${index}`}>
+          {data.map((item) => (
+            <li key={item.id}>
               <div className="flex items-start space-x-3 rounded-md p-2 transition hover:bg-gray-700/50">
-                <PlayIcon className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                {getStatusIcon(item)}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-gray-200">
-                    <span className="font-medium">{item.friendly_name || item.user}</span>
-                    <span className="text-gray-400"> watched </span>
-                    <span className="font-medium">
-                      {item.media_type === 'episode'
-                        ? item.grandparent_title || item.title
-                        : item.title}
-                    </span>
+                    {getPrimaryText(item)}
                   </p>
-                  <p className="text-xs text-gray-500">
-                    {formatTimeAgo(item.date)}
-                    {item.media_type === 'episode' && item.parent_title && (
-                      <span> · {item.parent_title}</span>
-                    )}
+                  <p className="truncate text-xs text-gray-500">
+                    {getSecondaryText(item)}
                   </p>
                 </div>
               </div>
