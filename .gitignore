@@ -34,6 +34,9 @@ config/cache/
 config/db/db.sqlite3
 config/db/db.sqlite3-shm
 config/db/db.sqlite3-wal
+config/db.bak/
+config/settings.bak
+handoff.md
 
 # reference 
 CLAUDE.md
