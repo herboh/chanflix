@@ -18,6 +18,8 @@ type ImageResponse = {
   imageBuffer: Buffer;
 };
 
+const DEFAULT_IMAGE_MAX_AGE = 86400 * 30;
+
 const baseCacheDirectory = process.env.CONFIG_DIRECTORY
   ? `${process.env.CONFIG_DIRECTORY}/cache/images`
   : path.join(__dirname, '../../config/cache/images');
@@ -101,6 +103,7 @@ class ImageProxy {
   private axios;
   private cacheVersion;
   private key;
+  private pendingWrites: Map<string, Promise<ImageResponse | null>> = new Map();
 
   constructor(
     key: string,
@@ -114,6 +117,7 @@ class ImageProxy {
     this.key = key;
     this.axios = axios.create({
       baseURL: baseUrl,
+      timeout: 10000,
     });
 
     if (options.rateLimitOptions) {
@@ -127,7 +131,7 @@ class ImageProxy {
     const imageResponse = await this.get(cacheKey);
 
     if (!imageResponse) {
-      const newImage = await this.set(path, cacheKey);
+      const newImage = await this.getOrSet(path, cacheKey);
 
       if (!newImage) {
         throw new Error('Failed to load image');
@@ -138,10 +142,33 @@ class ImageProxy {
 
     // If the image is stale, we will revalidate it in the background.
     if (imageResponse.meta.isStale) {
-      this.set(path, cacheKey);
+      this.getOrSet(path, cacheKey).catch((e) => {
+        logger.debug('Something went wrong refreshing stale image.', {
+          label: 'Image Cache',
+          errorMessage: e instanceof Error ? e.message : 'Unknown error',
+        });
+      });
     }
 
     return imageResponse;
+  }
+
+  private async getOrSet(
+    path: string,
+    cacheKey: string
+  ): Promise<ImageResponse | null> {
+    const pendingWrite = this.pendingWrites.get(cacheKey);
+    if (pendingWrite) {
+      return pendingWrite;
+    }
+
+    const writePromise = this.set(path, cacheKey).finally(() => {
+      this.pendingWrites.delete(cacheKey);
+    });
+
+    this.pendingWrites.set(cacheKey, writePromise);
+
+    return writePromise;
   }
 
   private async get(cacheKey: string): Promise<ImageResponse | null> {
@@ -188,9 +215,7 @@ class ImageProxy {
 
       const buffer = Buffer.from(response.data, 'binary');
       const extension = path.split('.').pop() ?? '';
-      const maxAge = Number(
-        (response.headers['cache-control'] ?? '0').split('=')[1]
-      );
+      const maxAge = this.getMaxAge(response.headers['cache-control']);
       const expireAt = Date.now() + maxAge * 1000;
       const etag = (response.headers.etag ?? '').replace(/"/g, '');
 
@@ -222,6 +247,21 @@ class ImageProxy {
       });
       return null;
     }
+  }
+
+  private getMaxAge(cacheControl?: string): number {
+    const maxAge = cacheControl
+      ?.split(',')
+      .map((directive) => directive.trim())
+      .find((directive) => directive.startsWith('max-age='))
+      ?.split('=')[1];
+    const parsedMaxAge = Number(maxAge);
+
+    if (Number.isFinite(parsedMaxAge) && parsedMaxAge > 0) {
+      return parsedMaxAge;
+    }
+
+    return DEFAULT_IMAGE_MAX_AGE;
   }
 
   private async writeToCacheDir(

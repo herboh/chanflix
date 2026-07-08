@@ -7,6 +7,7 @@ import { radarrScanner } from '@server/lib/scanners/radarr';
 import { sonarrScanner } from '@server/lib/scanners/sonarr';
 import type { JobId } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
+import { prewarmTmdbMetadata } from '@server/lib/tmdbMetadataPrewarm';
 import watchlistSync from '@server/lib/watchlistsync';
 import logger from '@server/logger';
 import schedule from 'node-schedule';
@@ -166,6 +167,20 @@ export const startJobs = (): void => {
       });
       // Clean TMDB image cache
       ImageProxy.clearCache('tmdb');
+    }),
+  });
+
+  scheduledJobs.push({
+    id: 'tmdb-metadata-prewarm',
+    name: 'TMDB Metadata Prewarm',
+    type: 'process',
+    interval: 'hours',
+    cronSchedule: jobs['tmdb-metadata-prewarm'].schedule,
+    job: schedule.scheduleJob(jobs['tmdb-metadata-prewarm'].schedule, () => {
+      logger.info('Starting scheduled job: TMDB Metadata Prewarm', {
+        label: 'Jobs',
+      });
+      prewarmTmdbMetadata();
     }),
   });
 

@@ -1,3 +1,4 @@
+import CachedImage from '@app/components/Common/CachedImage';
 import Header from '@app/components/Common/Header';
 import ListView from '@app/components/Common/ListView';
 import PageTitle from '@app/components/Common/PageTitle';
@@ -47,11 +48,14 @@ const DiscoverTvNetwork = () => {
         <Header>
           {firstResultData?.network.logoPath ? (
             <div className="mb-6 flex justify-center">
-              <img
-                src={`//image.tmdb.org/t/p/w780_filter(duotone,ffffff,bababa)${firstResultData.network.logoPath}`}
-                alt={firstResultData.network.name}
-                className="max-h-24 sm:max-h-32"
-              />
+              <div className="relative h-24 w-full max-w-lg sm:h-32">
+                <CachedImage
+                  src={`https://image.tmdb.org/t/p/w780_filter(duotone,ffffff,bababa)${firstResultData.network.logoPath}`}
+                  alt={firstResultData.network.name}
+                  layout="fill"
+                  objectFit="contain"
+                />
+              </div>
             </div>
           ) : (
             title

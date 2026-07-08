@@ -254,6 +254,7 @@ export type JobId =
   | 'download-sync'
   | 'download-sync-reset'
   | 'image-cache-cleanup'
+  | 'tmdb-metadata-prewarm'
   | 'availability-sync';
 
 interface AllSettings {
@@ -427,6 +428,9 @@ class Settings {
         },
         'download-sync-reset': {
           schedule: '0 0 1 * * *',
+        },
+        'tmdb-metadata-prewarm': {
+          schedule: '0 30 2 * * *',
         },
         'image-cache-cleanup': {
           schedule: '0 0 5 * * *',

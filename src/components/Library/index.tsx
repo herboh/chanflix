@@ -1,3 +1,4 @@
+import CachedImage from '@app/components/Common/CachedImage';
 import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
@@ -85,12 +86,14 @@ const LibraryCard = ({ item }: { item: LibraryItem }) => {
   return (
     <Link href={href}>
       <a className="group block overflow-hidden rounded-lg border border-gray-700 bg-gray-800 transition hover:border-indigo-500 hover:bg-gray-750">
-        <div className="aspect-[2/3] w-full bg-gray-900">
+        <div className="relative aspect-[2/3] w-full bg-gray-900">
           {item.posterPath ? (
-            <img
+            <CachedImage
               src={`https://image.tmdb.org/t/p/w300${item.posterPath}`}
               alt={item.title}
               className="h-full w-full object-cover"
+              layout="fill"
+              objectFit="cover"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">

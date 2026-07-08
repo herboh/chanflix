@@ -1,8 +1,11 @@
 import PlexAPI, { PlexLibraryItem } from '@server/api/plexapi';
+import TheMovieDb from '@server/api/themoviedb';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import { User } from '@server/entity/User';
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { getSettings } from '@server/lib/settings';
+import cacheManager from '@server/lib/cache';
 import logger from '@server/logger';
 import { isAuthenticated } from '@server/middleware/auth';
 import { Router } from 'express';
@@ -32,6 +35,62 @@ interface LibraryResponse {
   results: LibraryItem[];
 }
 
+const getYearFromDate = (date?: string): number | undefined => {
+  if (!date) {
+    return undefined;
+  }
+
+  const year = Number(date.slice(0, 4));
+  return Number.isFinite(year) ? year : undefined;
+};
+
+const isPlaceholderTitle = (title: string): boolean =>
+  title.startsWith('Media #');
+
+const enrichLibraryItem = async (
+  tmdbClient: TheMovieDb,
+  item: LibraryItem
+): Promise<LibraryItem> => {
+  if (!item.tmdbId) {
+    return item;
+  }
+
+  try {
+    if (item.mediaType === 'movie') {
+      const movie = await tmdbClient.getMovie({ movieId: item.tmdbId });
+
+      return {
+        ...item,
+        title: isPlaceholderTitle(item.title)
+          ? movie.title
+          : item.title || movie.title,
+        year: item.year ?? getYearFromDate(movie.release_date),
+        posterPath: item.posterPath ?? movie.poster_path,
+      };
+    }
+
+    const tvShow = await tmdbClient.getTvShow({ tvId: item.tmdbId });
+
+    return {
+      ...item,
+      title: isPlaceholderTitle(item.title)
+        ? tvShow.name
+        : item.title || tvShow.name,
+      year: item.year ?? getYearFromDate(tvShow.first_air_date),
+      posterPath: item.posterPath ?? tvShow.poster_path,
+    };
+  } catch (e) {
+    logger.debug('Failed to enrich library item with TMDB metadata', {
+      label: 'Library API',
+      tmdbId: item.tmdbId,
+      mediaType: item.mediaType,
+      errorMessage: e instanceof Error ? e.message : 'Unknown error',
+    });
+
+    return item;
+  }
+};
+
 // GET /api/v1/library - Get library items
 libraryRoutes.get<
   Record<string, never>,
@@ -47,12 +106,20 @@ libraryRoutes.get<
 >('/', isAuthenticated(), async (req, res, next) => {
   const settings = getSettings();
   const mediaRepository = getRepository(Media);
+  const userRepository = getRepository(User);
 
   const type = req.query.type || 'all';
   const status = req.query.status || 'all';
   const take = Math.min(Number(req.query.take) || 50, 100);
   const skip = Number(req.query.skip) || 0;
   const sort = req.query.sort || 'added';
+  const cache = cacheManager.getCache('library').data;
+  const cacheKey = JSON.stringify({ type, status, take, skip, sort });
+  const cachedResponse = cache.get<LibraryResponse>(cacheKey);
+
+  if (cachedResponse) {
+    return res.status(200).json(cachedResponse);
+  }
 
   try {
     const allItems: LibraryItem[] = [];
@@ -63,7 +130,20 @@ libraryRoutes.get<
 
       if (plexSettings.ip && plexSettings.libraries.length > 0) {
         try {
-          const plexClient = new PlexAPI({ plexToken: req.user?.plexToken });
+          const admin = await userRepository.findOne({
+            select: { id: true, plexToken: true },
+            where: { id: 1 },
+          });
+          const plexToken = req.user?.plexToken || admin?.plexToken;
+
+          if (!plexToken) {
+            logger.warn('No Plex token available for library fetch', {
+              label: 'Library API',
+              userId: req.user?.id,
+            });
+          }
+
+          const plexClient = new PlexAPI({ plexToken });
 
           for (const library of plexSettings.libraries) {
             if (!library.enabled) continue;
@@ -191,9 +271,14 @@ libraryRoutes.get<
 
     // Paginate
     const total = allItems.length;
-    const paginatedItems = allItems.slice(skip, skip + take);
+    const tmdbClient = new TheMovieDb();
+    const paginatedItems = await Promise.all(
+      allItems.slice(skip, skip + take).map((item) =>
+        enrichLibraryItem(tmdbClient, item)
+      )
+    );
 
-    return res.status(200).json({
+    const response = {
       pageInfo: {
         pages: Math.ceil(total / take),
         pageSize: take,
@@ -201,7 +286,11 @@ libraryRoutes.get<
         page: Math.floor(skip / take) + 1,
       },
       results: paginatedItems,
-    });
+    };
+
+    cache.set(cacheKey, response);
+
+    return res.status(200).json(response);
   } catch (e) {
     logger.error('Failed to fetch library', {
       label: 'API',

@@ -1,5 +1,9 @@
 import ExternalAPI from '@server/api/externalapi';
 import cacheManager from '@server/lib/cache';
+import {
+  getTmdbMetadata,
+  setTmdbMetadata,
+} from '@server/lib/tmdbMetadataCache';
 import { sortBy } from 'lodash';
 import type {
   TmdbCollection,
@@ -100,6 +104,11 @@ interface DiscoverTvOptions {
 class TheMovieDb extends ExternalAPI {
   private region?: string;
   private originalLanguage?: string;
+  private readonly movieAppendToResponse =
+    'credits,external_ids,videos,keywords,release_dates,watch/providers';
+  private readonly tvAppendToResponse =
+    'aggregate_credits,credits,external_ids,keywords,videos,content_ratings,watch/providers';
+
   constructor({
     region,
     originalLanguage,
@@ -249,21 +258,51 @@ class TheMovieDb extends ExternalAPI {
     movieId: number;
     language?: string;
   }): Promise<TmdbMovieDetails> => {
+    const cachedMovie = await getTmdbMetadata<TmdbMovieDetails>({
+      mediaType: 'movie',
+      tmdbId: movieId,
+      language,
+      appendToResponse: this.movieAppendToResponse,
+    });
+
+    if (cachedMovie) {
+      return cachedMovie;
+    }
+
     try {
       const data = await this.get<TmdbMovieDetails>(
         `/movie/${movieId}`,
         {
           params: {
             language,
-            append_to_response:
-              'credits,external_ids,videos,keywords,release_dates,watch/providers',
+            append_to_response: this.movieAppendToResponse,
           },
         },
         43200
       );
 
+      await setTmdbMetadata({
+        mediaType: 'movie',
+        tmdbId: movieId,
+        language,
+        appendToResponse: this.movieAppendToResponse,
+        payload: data,
+      });
+
       return data;
     } catch (e) {
+      const staleMovie = await getTmdbMetadata<TmdbMovieDetails>({
+        mediaType: 'movie',
+        tmdbId: movieId,
+        language,
+        appendToResponse: this.movieAppendToResponse,
+        allowStale: true,
+      });
+
+      if (staleMovie) {
+        return staleMovie;
+      }
+
       throw new Error(`[TMDB] Failed to fetch movie details: ${e.message}`);
     }
   };
@@ -275,21 +314,51 @@ class TheMovieDb extends ExternalAPI {
     tvId: number;
     language?: string;
   }): Promise<TmdbTvDetails> => {
+    const cachedTv = await getTmdbMetadata<TmdbTvDetails>({
+      mediaType: 'tv',
+      tmdbId: tvId,
+      language,
+      appendToResponse: this.tvAppendToResponse,
+    });
+
+    if (cachedTv) {
+      return cachedTv;
+    }
+
     try {
       const data = await this.get<TmdbTvDetails>(
         `/tv/${tvId}`,
         {
           params: {
             language,
-            append_to_response:
-              'aggregate_credits,credits,external_ids,keywords,videos,content_ratings,watch/providers',
+            append_to_response: this.tvAppendToResponse,
           },
         },
         43200
       );
 
+      await setTmdbMetadata({
+        mediaType: 'tv',
+        tmdbId: tvId,
+        language,
+        appendToResponse: this.tvAppendToResponse,
+        payload: data,
+      });
+
       return data;
     } catch (e) {
+      const staleTv = await getTmdbMetadata<TmdbTvDetails>({
+        mediaType: 'tv',
+        tmdbId: tvId,
+        language,
+        appendToResponse: this.tvAppendToResponse,
+        allowStale: true,
+      });
+
+      if (staleTv) {
+        return staleTv;
+      }
+
       throw new Error(`[TMDB] Failed to fetch TV show details: ${e.message}`);
     }
   };

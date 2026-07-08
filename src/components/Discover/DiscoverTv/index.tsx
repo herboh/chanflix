@@ -8,6 +8,7 @@ import {
   prepareFilterValues,
 } from '@app/components/Discover/constants';
 import FilterSlideover from '@app/components/Discover/FilterSlideover';
+import LibrarySlider from '@app/components/Discover/LibrarySlider';
 import useDiscover from '@app/hooks/useDiscover';
 import { useUpdateQueryParams } from '@app/hooks/useUpdateQueryParams';
 import Error from '@app/pages/_error';
@@ -129,6 +130,7 @@ const DiscoverTv = () => {
           </div>
         </div>
       </div>
+      <LibrarySlider type="tv" title="On the Server" sliderKey="library-tv" />
       <ListView
         items={titles}
         isEmpty={isEmpty}

@@ -1,3 +1,4 @@
+import CachedImage from '@app/components/Common/CachedImage';
 import TitleCard from '@app/components/TitleCard';
 import { ArrowRightCircleIcon } from '@heroicons/react/24/solid';
 import Link from 'next/link';
@@ -58,37 +59,49 @@ const ShowMoreCard = ({ url, posters }: ShowMoreCardProps) => {
               <div className="relative z-10 flex h-full flex-wrap items-center justify-center opacity-30">
                 {posters[0] && (
                   <div className="w-1/2 p-1">
-                    <img
-                      src={`//image.tmdb.org/t/p/w300_and_h450_face${posters[0]}`}
+                    <CachedImage
+                      src={`https://image.tmdb.org/t/p/w300_and_h450_face${posters[0]}`}
                       alt=""
                       className="w-full rounded-md"
+                      layout="responsive"
+                      width={300}
+                      height={450}
                     />
                   </div>
                 )}
                 {posters[1] && (
                   <div className="w-1/2 p-1">
-                    <img
-                      src={`//image.tmdb.org/t/p/w300_and_h450_face${posters[1]}`}
+                    <CachedImage
+                      src={`https://image.tmdb.org/t/p/w300_and_h450_face${posters[1]}`}
                       alt=""
                       className="w-full rounded-md"
+                      layout="responsive"
+                      width={300}
+                      height={450}
                     />
                   </div>
                 )}
                 {posters[2] && (
                   <div className="w-1/2 p-1">
-                    <img
-                      src={`//image.tmdb.org/t/p/w300_and_h450_face${posters[2]}`}
+                    <CachedImage
+                      src={`https://image.tmdb.org/t/p/w300_and_h450_face${posters[2]}`}
                       alt=""
                       className="w-full rounded-md"
+                      layout="responsive"
+                      width={300}
+                      height={450}
                     />
                   </div>
                 )}
                 {posters[3] && (
                   <div className="w-1/2 p-1">
-                    <img
-                      src={`//image.tmdb.org/t/p/w300_and_h450_face${posters[3]}`}
+                    <CachedImage
+                      src={`https://image.tmdb.org/t/p/w300_and_h450_face${posters[3]}`}
                       alt=""
                       className="w-full rounded-md"
+                      layout="responsive"
+                      width={300}
+                      height={450}
                     />
                   </div>
                 )}
