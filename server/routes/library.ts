@@ -120,7 +120,7 @@ libraryRoutes.get<
   Record<string, never>,
   {
     type?: 'movie' | 'tv' | 'all';
-    status?: 'available' | 'pending' | 'all';
+    status?: 'available' | 'pending' | 'missing' | 'downloading' | 'all';
     take?: string;
     skip?: string;
     sort?: 'title' | 'added' | 'year';
@@ -132,7 +132,7 @@ libraryRoutes.get<
 
   const type = req.query.type || 'all';
   const status = req.query.status || 'all';
-  const take = Math.min(Number(req.query.take) || 50, 100);
+  const take = Math.min(Number(req.query.take) || 50, 500);
   const skip = Number(req.query.skip) || 0;
   const sort = req.query.sort || 'added';
   const cache = cacheManager.getCache('library').data;
@@ -250,8 +250,13 @@ libraryRoutes.get<
       }
     }
 
-    // Get pending/processing items from database if status is 'all' or 'pending'
-    if (status === 'all' || status === 'pending') {
+    // Get missing/downloading items from the database.
+    if (
+      status === 'all' ||
+      status === 'pending' ||
+      status === 'missing' ||
+      status === 'downloading'
+    ) {
       const localStatuses = [
         MediaStatus.PENDING,
         MediaStatus.PROCESSING,
@@ -289,6 +294,17 @@ libraryRoutes.get<
             media.mediaType === MediaType.MOVIE ? activeMovieIds : activeTvIds
           );
 
+          if (status === 'downloading' && statusString !== 'processing') {
+            continue;
+          }
+
+          if (
+            status === 'missing' &&
+            !['pending', 'stalled', 'partial'].includes(statusString)
+          ) {
+            continue;
+          }
+
           allItems.push({
             id: media.id,
             tmdbId: media.tmdbId,
@@ -303,25 +319,36 @@ libraryRoutes.get<
       }
     }
 
+    const tmdbClient = new TheMovieDb();
+    const sortableItems =
+      sort === 'title'
+        ? await Promise.all(
+            allItems.map((item) =>
+              isPlaceholderTitle(item.title)
+                ? enrichLibraryItem(tmdbClient, item)
+                : item
+            )
+          )
+        : allItems;
+
     // Sort items
     switch (sort) {
       case 'title':
-        allItems.sort((a, b) => a.title.localeCompare(b.title));
+        sortableItems.sort((a, b) => a.title.localeCompare(b.title));
         break;
       case 'year':
-        allItems.sort((a, b) => (b.year || 0) - (a.year || 0));
+        sortableItems.sort((a, b) => (b.year || 0) - (a.year || 0));
         break;
       case 'added':
       default:
-        allItems.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+        sortableItems.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
         break;
     }
 
     // Paginate
-    const total = allItems.length;
-    const tmdbClient = new TheMovieDb();
+    const total = sortableItems.length;
     const paginatedItems = await Promise.all(
-      allItems
+      sortableItems
         .slice(skip, skip + take)
         .map((item) => enrichLibraryItem(tmdbClient, item))
     );
