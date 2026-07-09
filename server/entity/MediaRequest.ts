@@ -16,10 +16,7 @@ import { getRepository } from '@server/datasource';
 import type { MediaRequestBody } from '@server/interfaces/api/requestInterfaces';
 import notificationManager, { Notification } from '@server/lib/notifications';
 import { Permission } from '@server/lib/permissions';
-import {
-  getRequestUserTagLabel,
-  isRequestUserTag,
-} from '@server/lib/requestTags';
+import { resolveRequestUserTagId } from '@server/lib/requestTags';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { isEqual, truncate } from 'lodash';
@@ -767,34 +764,18 @@ export class MediaRequest {
         }
 
         if (radarrSettings.tagRequests) {
-          const userTagLabel = getRequestUserTagLabel(this.requestedBy);
-          let userTag = (await radarr.getTags()).find((v) =>
-            isRequestUserTag(v.label, this.requestedBy)
-          );
-          if (!userTag) {
-            logger.info(`Requester has no active tag. Creating new`, {
-              label: 'Media Request',
+          const userTagId = await resolveRequestUserTagId(
+            radarr,
+            this.requestedBy,
+            {
               requestId: this.id,
               mediaId: this.media.id,
-              userId: this.requestedBy.id,
-              newTag: userTagLabel,
-            });
-            userTag = await radarr.createTag({
-              label: userTagLabel,
-            });
-          }
-          if (userTag.id) {
-            if (!tags?.find((v) => v === userTag?.id)) {
-              tags?.push(userTag.id);
-            }
-          } else {
-            logger.warn(`Requester has no tag and failed to add one`, {
-              label: 'Media Request',
-              requestId: this.id,
-              mediaId: this.media.id,
-              userId: this.requestedBy.id,
               radarrServer: radarrSettings.hostname + ':' + radarrSettings.port,
-            });
+            }
+          );
+
+          if (userTagId && !tags.includes(userTagId)) {
+            tags.push(userTagId);
           }
         }
 
@@ -1061,34 +1042,18 @@ export class MediaRequest {
         }
 
         if (sonarrSettings.tagRequests) {
-          const userTagLabel = getRequestUserTagLabel(this.requestedBy);
-          let userTag = (await sonarr.getTags()).find((v) =>
-            isRequestUserTag(v.label, this.requestedBy)
-          );
-          if (!userTag) {
-            logger.info(`Requester has no active tag. Creating new`, {
-              label: 'Media Request',
+          const userTagId = await resolveRequestUserTagId(
+            sonarr,
+            this.requestedBy,
+            {
               requestId: this.id,
               mediaId: this.media.id,
-              userId: this.requestedBy.id,
-              newTag: userTagLabel,
-            });
-            userTag = await sonarr.createTag({
-              label: userTagLabel,
-            });
-          }
-          if (userTag.id) {
-            if (!tags?.find((v) => v === userTag?.id)) {
-              tags?.push(userTag.id);
-            }
-          } else {
-            logger.warn(`Requester has no tag and failed to add one`, {
-              label: 'Media Request',
-              requestId: this.id,
-              mediaId: this.media.id,
-              userId: this.requestedBy.id,
               sonarrServer: sonarrSettings.hostname + ':' + sonarrSettings.port,
-            });
+            }
+          );
+
+          if (userTagId && !tags.includes(userTagId)) {
+            tags.push(userTagId);
           }
         }
 

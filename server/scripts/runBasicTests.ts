@@ -18,9 +18,11 @@ import {
 } from '@server/lib/tmdbMetadataCache';
 import { dedupeTmdbPrewarmCandidates } from '@server/lib/tmdbMetadataPrewarm';
 import { buildPendingRequestSummary } from '@server/routes/stats';
+import type { RequestTagApi } from '@server/lib/requestTags';
 import {
   getRequestUserTagLabel,
   isRequestUserTag,
+  resolveRequestUserTagId,
 } from '@server/lib/requestTags';
 import type { User } from '@server/entity/User';
 
@@ -118,6 +120,92 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'user tag resolution reuses existing new-style and legacy tags',
+    run: async () => {
+      const requestUser = user(4, 'Nick Hump 4');
+      let createCalls = 0;
+      const api: RequestTagApi = {
+        getTags: async () => [
+          { id: 11, label: 'unrelated' },
+          { id: 12, label: '4 - nickhump4' },
+        ],
+        createTag: async () => {
+          createCalls += 1;
+          return { id: 99 };
+        },
+      };
+
+      assert.equal(await resolveRequestUserTagId(api, requestUser), 12);
+      assert.equal(createCalls, 0);
+    },
+  },
+  {
+    name: 'user tag resolution creates sanitized label when missing',
+    run: async () => {
+      const requestUser = user(4, 'Nick Hump 4');
+      let createdLabel: string | undefined;
+      const api: RequestTagApi = {
+        getTags: async () => [{ id: 11, label: 'unrelated' }],
+        createTag: async ({ label }) => {
+          createdLabel = label;
+          return { id: 42 };
+        },
+      };
+
+      assert.equal(await resolveRequestUserTagId(api, requestUser), 42);
+      assert.equal(createdLabel, 'request-4-nick-hump-4');
+    },
+  },
+  {
+    name: 'user tag resolution is fail-soft when tag reads fail',
+    run: async () => {
+      const requestUser = user(4, 'Nick Hump 4');
+      const api: RequestTagApi = {
+        getTags: async () => {
+          throw new Error('[Radarr] Failed to retrieve tags: HTTP 401');
+        },
+        createTag: async () => {
+          throw new Error('should not be called');
+        },
+      };
+
+      assert.equal(await resolveRequestUserTagId(api, requestUser), undefined);
+    },
+  },
+  {
+    name: 'user tag resolution retries a read after create fails, then gives up softly',
+    run: async () => {
+      const requestUser = user(4, 'Nick Hump 4');
+      let getCalls = 0;
+      const racedApi: RequestTagApi = {
+        getTags: async () => {
+          getCalls += 1;
+          // Second read simulates another request having created the tag
+          // between our first read and the failed create (or a read-only key).
+          return getCalls > 1 ? [{ id: 77, label: 'request-4-nick-hump-4' }] : [];
+        },
+        createTag: async () => {
+          throw new Error('[Radarr] Failed to create tag: HTTP 400');
+        },
+      };
+
+      assert.equal(await resolveRequestUserTagId(racedApi, requestUser), 77);
+      assert.equal(getCalls, 2);
+
+      const brokenApi: RequestTagApi = {
+        getTags: async () => [],
+        createTag: async () => {
+          throw new Error('[Radarr] Failed to create tag: HTTP 400');
+        },
+      };
+
+      assert.equal(
+        await resolveRequestUserTagId(brokenApi, requestUser),
+        undefined
+      );
+    },
+  },
+  {
     name: 'stability cache buckets are registered',
     run: () => {
       const caches = cacheManager.getAllCaches();
@@ -161,9 +249,10 @@ const tests: TestCase[] = [
     name: 'TMDB metadata cache freshness and payload parsing are deterministic',
     run: () => {
       assert.equal(
-        isTmdbMetadataFresh({
-          expiresAt: new Date('2026-07-09T00:00:00.000Z'),
-        }),
+        isTmdbMetadataFresh(
+          { expiresAt: new Date('2026-07-09T00:00:00.000Z') },
+          new Date('2026-07-08T00:00:00.000Z')
+        ),
         true
       );
       assert.equal(
