@@ -9,7 +9,6 @@ Feature branches in flight; merge into `dev` after review + typecheck/test/build
 ### TODO
 
 - [ ] `feat/ops-now` — Operations overhaul + home "Now" panel: Tautulli `get_activity` integration, `/api/v1/stats/now` (live streams, active downloads, downloads finished <5 min, with posters), compact Popular This Month + scrollable Recent Activity with visible timestamps, fold Downloads page into Operations, Radarr/Sonarr retry (search) button, Library "on Radarr but not downloaded" classification, shelve "Open Plex" sidebar action.
-- [ ] `fix/request-tags` — make per-user request tagging fail-soft (tag create/lookup failure must never block the request), so `tagRequests` can be re-enabled on Radarr and Sonarr.
 - [ ] `feat/design-overhaul` — exploratory visual pass: square/old-school hacker aesthetic, modern niceties, no rounded-purple slop. Own test branch, review before merge.
 - [ ] `feat/quality-triggers` — per-user quality trigger plumbing + UX stubs (details later).
 - [ ] `feat/request-flow` — post-request status popup; inbound Radarr/Sonarr download-complete webhook triggering an availability scan.
@@ -18,6 +17,7 @@ Feature branches in flight; merge into `dev` after review + typecheck/test/build
 ### DONE (this session)
 
 - [x] Committed pending Dockerfile `COMMIT_TAG=local` default + deploy-path docs (`bd39348`).
+- [x] `fix/request-tags` merged to dev (`da1df53`): per-user request tagging is now fail-soft — root cause was tag-create failures rethrowing inside the TypeORM save hook, failing the entire request. Legacy `"4 - name"` tags are reused, create races retried via re-read, and a tag failure can never block a request. Safe to re-enable `tagRequests` on Radarr + Sonarr; if logs show `Failed to create user tag`, the servarr API key lacks write access to `/tag`.
 
 ## Working Rules
 
