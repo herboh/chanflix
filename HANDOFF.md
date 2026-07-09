@@ -29,22 +29,20 @@ Pre-session context (earlier passes, already on `dev`): external API cache TTL/r
 
 ## Ready for review (unmerged branch)
 
-- **`feat/design-overhaul`** — gruvbox terminal design system: warm near-black neutrals, green primary / orange secondary accents (all indigo/purple remapped away at the Tailwind theme level, so unconverted surfaces snapped over in one move), square corners, mono accents, thin square scrollbars, 120ms snappy motion. System documented in `DESIGN.md` on the branch. Rebased onto current dev; `typecheck:client` + production `build:next` verified.
-  **Needs the owner's eyes before merge**: home/Discover widgets, settings pages, TitleCard hover, badge/chip contrast, squared pills. Known follow-up: self-host the Google Fonts import (render-blocking).
+- **`feat/design-overhaul`** — gruvbox terminal design system: warm near-black neutrals, green primary / orange secondary accents (all indigo/purple remapped away at the Tailwind theme level, so unconverted surfaces — including the new Now panel/Operations — snap onto the palette automatically), square corners, mono accents, thin square scrollbars, 120ms snappy motion. System documented in `DESIGN.md` on the branch. Rebased onto fully-merged dev; typecheck + production `build:next` re-verified after rebase.
+  **Needs the owner's eyes before merge**: home/Discover widgets (incl. new Now panel), settings pages, TitleCard hover, badge/chip contrast, squared pills. Known follow-up: self-host the Google Fonts import (render-blocking).
 
-## In flight (agents working on worktree branches)
+## Also done (merged after this manifest's first draft)
 
-- **`feat/ops-now`** (goals 1–4, 8) — committed so far: Tautulli `get_activity` integration + `GET /api/v1/stats/now` (streams / active downloads / finished-in-5-min, with posters), home Now panel + compact/scrollable home widgets. Remaining: fold Downloads page into Operations (+nav/redirect), retry-search button (route + Operations/Library UI), Library missing-vs-processing classification, remove Open Plex.
+- **`feat/ops-now` merged (goals 1–4, 8)** — Tautulli `get_activity` + `GET /api/v1/stats/now` (streams for all users; downloads + finished-in-5-min with posters for request managers), home Now panel (live-pulse streams, poster'd downloads, quiet empty state, 30s poll), compact Popular This Month, scrollable Recent Activity with always-visible timestamps, review/message-board widgets unplugged, `POST /api/v1/downloads/retry` → Radarr `MoviesSearch`/Sonarr `SeriesSearch` with retry buttons in Operations and Library, Downloads page folded into Operations (`/downloads` redirects), Library "Not Downloaded" (stalled, no spinner) vs "Downloading" classification, Open Plex sidebar action removed.
+- **Full gate passed on merged `dev`**: 28/28 unit tests, `yarn typecheck` clean, production `yarn build` clean, all 37 migrations smoke-applied to a disposable SQLite DB (`qualityTriggers` column verified).
 
 ## Left to do
 
-1. Review + merge `feat/ops-now`, `feat/quality-triggers`, `feat/request-flow` into `dev` (cherry-pick or merge; resolve overlaps in stats routes/OpenAPI/home widgets — ops-now wins on widget internals, design branch wins on styling).
-2. Owner visual review of `feat/design-overhaul`, then merge it last (it's styling-only by design, so it should apply cleanly over the feature branches).
-3. Full gate on merged `dev`: `yarn test:unit`, `yarn typecheck`, `yarn build`, `git diff --check`; migration smoke against a disposable SQLite DB (quality-triggers adds a migration).
-4. Container smoke test, then deploy via `scripts/deploy-chanflix-prod.sh` (never bare compose build).
-5. Post-deploy: re-enable `tagRequests` on Radarr (Sonarr already on); submit a test request; if logs show `Failed to create user tag`, the Radarr API key lacks write access to `/tag` — fix in Radarr, requests keep working untagged meanwhile. Configure the new servarr webhook in Radarr/Sonarr Connect settings. Watch logs for TMDB/Discord 429s and tag errors.
-6. Worktree/branch cleanup after merges (`git worktree remove`, delete `worktree-agent-*` branches).
-7. Deferred/ideas: interactive search UI (beyond retry), quality-trigger rule implementation (plumbing is stubbed at `evaluateQualityTriggers`), TMDB prewarm scope decision, self-hosted fonts.
+1. Owner visual review of `feat/design-overhaul`, then merge it last (styling-only; already rebased over everything).
+2. Container smoke test, then deploy via `scripts/deploy-chanflix-prod.sh` (never bare compose build).
+3. Post-deploy: re-enable `tagRequests` on Radarr (Sonarr already on); submit a test request; if logs show `Failed to create user tag`, the Radarr API key lacks write access to `/tag` — fix in Radarr, requests keep working untagged meanwhile. Configure the servarr webhook in Radarr/Sonarr Connect (URL/secret steps in `CHANFLIX_DEV_SERVER.md`; secret auto-generates into `config/settings.json` on first boot). Verify Now panel/Operations/Library against live Tautulli/Radarr (the `get_activity` field shapes were typed from docs) and do one manual retry against live Radarr. Watch logs for TMDB/Discord 429s and tag errors.
+4. Deferred/ideas: interactive search UI (beyond retry), quality-trigger rule implementation (plumbing is stubbed at `evaluateQualityTriggers`), TMDB prewarm scope decision, self-hosted fonts, prune unused `requestSuccess` i18n strings, retry endpoint reports "triggered" even if servarr swallows the command error (needs a rethrow variant for real feedback).
 
 ## Conventions
 
