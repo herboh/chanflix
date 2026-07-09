@@ -8,6 +8,7 @@ import downloadTracker, {
   RecentDownloadItem,
 } from '@server/lib/downloadtracker';
 import { Permission } from '@server/lib/permissions';
+import type { DVRSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { isAuthenticated } from '@server/middleware/auth';
@@ -88,7 +89,8 @@ downloadsRoutes.post<
       }
 
       const settings = getSettings();
-      const servers = mediaType === 'movie' ? settings.radarr : settings.sonarr;
+      const servers: DVRSettings[] =
+        mediaType === 'movie' ? settings.radarr : settings.sonarr;
       const triggered: string[] = [];
 
       for (const is4k of [false, true]) {

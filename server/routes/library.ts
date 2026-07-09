@@ -5,6 +5,7 @@ import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import { User } from '@server/entity/User';
 import cacheManager from '@server/lib/cache';
+import downloadTracker from '@server/lib/downloadtracker';
 import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -21,7 +22,13 @@ export interface LibraryItem {
   title: string;
   year?: number;
   mediaType: 'movie' | 'tv';
-  status: 'available' | 'pending' | 'processing' | 'partial' | 'unknown';
+  status:
+    | 'available'
+    | 'pending'
+    | 'processing'
+    | 'stalled'
+    | 'partial'
+    | 'unknown';
   addedAt?: number;
   posterPath?: string;
 }
@@ -35,6 +42,32 @@ interface LibraryResponse {
   };
   results: LibraryItem[];
 }
+
+// A media row stuck in PROCESSING with no matching queue item is not
+// actually downloading - surface it as stalled so it can be retried.
+export const classifyLocalMediaStatus = (
+  media: Pick<Media, 'status' | 'externalServiceId' | 'externalServiceId4k'>,
+  activeExternalIds: Set<number>
+): LibraryItem['status'] => {
+  switch (media.status) {
+    case MediaStatus.PENDING:
+      return 'pending';
+    case MediaStatus.PARTIALLY_AVAILABLE:
+      return 'partial';
+    case MediaStatus.PROCESSING: {
+      const externalIds = [
+        media.externalServiceId,
+        media.externalServiceId4k,
+      ].filter((id): id is number => id !== null && id !== undefined);
+
+      return externalIds.some((id) => activeExternalIds.has(id))
+        ? 'processing'
+        : 'stalled';
+    }
+    default:
+      return 'unknown';
+  }
+};
 
 const getYearFromDate = (date?: string): number | undefined => {
   if (!date) {
@@ -265,6 +298,14 @@ libraryRoutes.get<
         })
         .getMany();
 
+      const activeDownloads = downloadTracker.getAllDownloads();
+      const activeMovieIds = new Set(
+        activeDownloads.movies.map((item) => item.externalId)
+      );
+      const activeTvIds = new Set(
+        activeDownloads.tv.map((item) => item.externalId)
+      );
+
       for (const media of pendingMedia) {
         // Check if we already have this item from Plex
         const existsInPlex = allItems.some(
@@ -273,18 +314,10 @@ libraryRoutes.get<
         );
 
         if (!existsInPlex) {
-          let statusString: LibraryItem['status'] = 'unknown';
-          switch (media.status) {
-            case MediaStatus.PENDING:
-              statusString = 'pending';
-              break;
-            case MediaStatus.PROCESSING:
-              statusString = 'processing';
-              break;
-            case MediaStatus.PARTIALLY_AVAILABLE:
-              statusString = 'partial';
-              break;
-          }
+          const statusString = classifyLocalMediaStatus(
+            media,
+            media.mediaType === MediaType.MOVIE ? activeMovieIds : activeTvIds
+          );
 
           allItems.push({
             id: media.id,
