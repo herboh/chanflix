@@ -76,6 +76,7 @@ Last updated: 2026-07-08
 - Verified production TypeORM migrations against a disposable SQLite DB at `/tmp/chanflix-migration-smoke`; all 36 migrations applied and the new `download_history` / `tmdb_metadata_cache` tables and indexes were created.
 - Added a tested Plex launch URL builder and extended `/api/v1/auth/plex/launch` to accept `ratingKey` for direct media deep links.
 - Removed the unused client-side `plexLauncher` helper.
+- Fixed the production Chanflix image build path so Docker Compose passes the current Git SHA as `COMMIT_TAG`; redeployed `chanflix:latest` at `021aefe6167e` and verified `/api/v1/status` plus the baked Next bundle both report that tag.
 
 ## Next Stability Work
 
@@ -155,6 +156,7 @@ Before deploy:
 - Run `yarn typecheck`
 - Run `git diff --check`
 - Build/container smoke test
+- Deploy production with `scripts/deploy-chanflix-prod.sh` so the Docker build receives the current `COMMIT_TAG`; do not run the compose build without `CHANFLIX_COMMIT_TAG` unless intentionally building a local image.
 - Run production migration smoke test against a disposable SQLite DB when entity/migration files change
 - Confirm `/api/v1/status` no longer calls upstream GitHub
 - Confirm `/api/v1/downloads` returns 403 for non-`MANAGE_REQUESTS`

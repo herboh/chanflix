@@ -19,8 +19,8 @@ RUN CYPRESS_INSTALL_BINARY=0 yarn install --frozen-lockfile --network-timeout 10
 
 COPY . ./
 
-ARG COMMIT_TAG
-ENV COMMIT_TAG=${COMMIT_TAG}
+ARG COMMIT_TAG=local
+ENV COMMIT_TAG=${COMMIT_TAG:-local}
 
 RUN yarn build
 
@@ -31,7 +31,7 @@ RUN rm -rf src server .next/cache
 
 RUN touch config/DOCKER
 
-RUN echo "{\"commitTag\": \"${COMMIT_TAG}\"}" > committag.json
+RUN echo "{\"commitTag\": \"${COMMIT_TAG:-local}\"}" > committag.json
 
 
 FROM node:18.18-alpine
