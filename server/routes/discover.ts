@@ -51,8 +51,8 @@ export const createTmdbWithRegionLanguage = (user?: User): TheMovieDb => {
 
 const discoverRoutes = Router();
 
-const CRITERION_COMPANY_ID = 10932;
-const CRITERION_CACHE_KEY = 'criterion-collection';
+const CRITERION_COMPANY_ID = 204170;
+const CRITERION_CACHE_KEY = 'criterion-collection-v2';
 const CRITERION_CACHE_TTL = 1000 * 60 * 60 * 36;
 let criterionRefreshPromise:
   | Promise<{
@@ -106,7 +106,7 @@ const getCriterionCollection = async (): Promise<{
           language: 'en-US',
           studio: String(CRITERION_COMPANY_ID),
           sortBy: 'vote_average.desc',
-          voteCountGte: '50',
+          voteCountGte: '1',
         })
       )
     );

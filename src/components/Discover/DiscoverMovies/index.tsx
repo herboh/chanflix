@@ -142,7 +142,7 @@ const DiscoverMovies = () => {
         sliderKey="criterion-collection-movies"
         title="The Criterion Collection"
         url="/api/v1/discover/criterion"
-        linkUrl="/discover/movies?studio=10932"
+        linkUrl="/discover/movies?studio=204170"
       />
       <ListView
         items={titles}

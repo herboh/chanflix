@@ -263,7 +263,7 @@ const Discover = () => {
                 sliderKey="criterion-collection"
                 title={intl.formatMessage(sliderTitles.criterioncollection)}
                 url="/api/v1/discover/criterion"
-                linkUrl="/discover/movies?studio=10932"
+                linkUrl="/discover/movies?studio=204170"
               />
             );
             break;
