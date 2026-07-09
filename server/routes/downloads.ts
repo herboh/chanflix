@@ -1,8 +1,14 @@
 import RadarrAPI from '@server/api/servarr/radarr';
 import SonarrAPI from '@server/api/servarr/sonarr';
+import TheMovieDb from '@server/api/themoviedb';
 import { MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
+import {
+  groupDownloadsBySeason,
+  resolveDownloadMetadata,
+  SeasonGroupFields,
+} from '@server/lib/downloadEnrichment';
 import downloadTracker, {
   DownloadingItem,
   RecentDownloadItem,
@@ -16,10 +22,14 @@ import { Router } from 'express';
 
 const downloadsRoutes = Router();
 
+type MediaMeta = { tmdbId?: number; posterPath?: string };
+type EnrichedDownload = DownloadingItem & MediaMeta & SeasonGroupFields;
+type EnrichedRecentDownload = RecentDownloadItem & MediaMeta & SeasonGroupFields;
+
 interface DownloadsResponse {
-  movies: DownloadingItem[];
-  tv: DownloadingItem[];
-  recent: RecentDownloadItem[];
+  movies: EnrichedDownload[];
+  tv: EnrichedDownload[];
+  recent: EnrichedRecentDownload[];
 }
 
 // GET /api/v1/downloads - Get all active downloads
@@ -28,11 +38,35 @@ downloadsRoutes.get<Record<string, never>, DownloadsResponse>(
   isAuthenticated(Permission.MANAGE_REQUESTS),
   async (_req, res, next) => {
     try {
+      const tmdb = new TheMovieDb();
       const downloads = downloadTracker.getAllDownloads();
+      const recent = await downloadTracker.getRecentDownloads();
+
+      const enrich = async <T extends DownloadingItem>(item: T) => {
+        const meta = await resolveDownloadMetadata(
+          tmdb,
+          item.mediaType,
+          item.externalId
+        );
+
+        return {
+          ...item,
+          title: meta.title ?? item.title,
+          tmdbId: meta.tmdbId,
+          posterPath: meta.posterPath,
+        };
+      };
+
+      const [movies, tv, recentEnriched] = await Promise.all([
+        Promise.all(downloads.movies.map(enrich)),
+        Promise.all(downloads.tv.map(enrich)),
+        Promise.all(recent.map(enrich)),
+      ]);
 
       return res.status(200).json({
-        ...downloads,
-        recent: await downloadTracker.getRecentDownloads(),
+        movies,
+        tv: groupDownloadsBySeason(tv),
+        recent: groupDownloadsBySeason(recentEnriched),
       });
     } catch (e) {
       logger.error('Failed to fetch downloads', {

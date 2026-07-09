@@ -42,12 +42,37 @@ interface NowDownload {
   };
   tmdbId?: number;
   posterPath?: string;
+  seasonNumber?: number;
+  episodeNumbers?: number[];
+  episodeCount?: number;
 }
 
 interface NowRecentDownload extends NowDownload {
   completedAt: string;
   outcome: 'completed' | 'cleared';
 }
+
+const formatEpisodeLabel = (item: NowDownload): string => {
+  if (item.episodeCount && item.seasonNumber != null) {
+    const eps = item.episodeNumbers ?? [];
+    const range =
+      eps.length > 1
+        ? `E${eps[0]}–E${eps[eps.length - 1]}`
+        : eps.length === 1
+        ? `E${eps[0]}`
+        : '';
+    const plural = item.episodeCount > 1 ? 's' : '';
+    return `Season ${item.seasonNumber} · ${item.episodeCount} ep${plural}${
+      range ? ` · ${range}` : ''
+    }`;
+  }
+
+  if (item.episode) {
+    return `S${item.episode.seasonNumber} E${item.episode.episodeNumber}`;
+  }
+
+  return '';
+};
 
 interface NowResponse {
   streams: NowStream[];
@@ -180,9 +205,7 @@ const DownloadRow = ({ item }: { item: NowDownload }) => {
           </MaybeLink>
         </p>
         <p className="truncate text-xs text-gray-500">
-          {item.episode
-            ? `S${item.episode.seasonNumber} E${item.episode.episodeNumber} · `
-            : ''}
+          {formatEpisodeLabel(item) ? `${formatEpisodeLabel(item)} · ` : ''}
           {item.status}
           {item.timeLeft ? ` · ${item.timeLeft} left` : ''}
         </p>
@@ -217,10 +240,11 @@ const FinishedRow = ({ item }: { item: NowRecentDownload }) => (
         </MaybeLink>
       </p>
       <p className="truncate text-xs text-gray-500">
-        {item.episode
-          ? `S${item.episode.seasonNumber} E${item.episode.episodeNumber} · `
-          : ''}
-        Finished {formatTimeAgo(item.completedAt)}
+        {formatEpisodeLabel(item) ? `${formatEpisodeLabel(item)} · ` : ''}
+        Finished{' '}
+        <span title={new Date(item.completedAt).toLocaleString()}>
+          {formatTimeAgo(item.completedAt)}
+        </span>
       </p>
     </div>
     <CheckCircleIcon className="h-5 w-5 shrink-0 text-green-400" />
