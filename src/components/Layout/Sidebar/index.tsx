@@ -3,7 +3,6 @@ import useClickOutside from "@app/hooks/useClickOutside";
 import { Permission, useUser } from "@app/hooks/useUser";
 import { Transition } from "@headlessui/react";
 import {
-  ArrowDownTrayIcon,
   ChatBubbleLeftRightIcon,
   ClockIcon,
   CogIcon,
@@ -11,7 +10,6 @@ import {
   FilmIcon,
   FolderIcon,
   RectangleGroupIcon,
-  PlayIcon,
   SparklesIcon,
   TvIcon,
   UsersIcon,
@@ -30,9 +28,7 @@ export const menuMessages = defineMessages({
   issues: "Issues",
   users: "Users",
   settings: "Settings",
-  watch: "Open Plex",
   community: "Community",
-  downloads: "Downloads",
   library: "Library",
   operations: "Operations",
 });
@@ -79,12 +75,6 @@ const SidebarLinks: SidebarLinkProps[] = [
     activeRegExp: /^\/requests/,
   },
   {
-    href: "#", // We will dynamically handle the href
-    messagesKey: "watch",
-    svgIcon: <PlayIcon className="mr-3 h-6 w-6" />,
-    activeRegExp: /^$/,
-  },
-  {
     href: "/community/board",
     messagesKey: "community",
     svgIcon: <ChatBubbleLeftRightIcon className="mr-3 h-6 w-6" />,
@@ -95,13 +85,6 @@ const SidebarLinks: SidebarLinkProps[] = [
     messagesKey: "operations",
     svgIcon: <RectangleGroupIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/operations/,
-    requiredPermission: Permission.MANAGE_REQUESTS,
-  },
-  {
-    href: "/downloads",
-    messagesKey: "downloads",
-    svgIcon: <ArrowDownTrayIcon className="mr-3 h-6 w-6" />,
-    activeRegExp: /^\/downloads/,
     requiredPermission: Permission.MANAGE_REQUESTS,
   },
   {
@@ -145,27 +128,6 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
   const intl = useIntl();
   const { hasPermission, user, loading, error } = useUser();
   useClickOutside(navRef, () => setClosed());
-
-  // Inside your Sidebar component, update the handler:
-  const handlePlexLaunch = async () => {
-    try {
-      const response = await fetch("/api/v1/auth/plex/launch", {
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to launch Plex");
-      }
-
-      window.open(data.url, "_blank");
-    } catch (error: any) {
-      alert(error.message);
-    }
-  };
 
   return (
     <>
@@ -224,36 +186,6 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                             })
                           : true
                       ).map((sidebarLink) => {
-                        if (sidebarLink.messagesKey === "watch") {
-                          return (
-                            <a
-                              key={`mobile-${sidebarLink.messagesKey}`}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => {
-                                setClosed();
-                                handlePlexLaunch();
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  setClosed();
-                                  handlePlexLaunch();
-                                }
-                              }}
-                              className={`flex items-center px-2 py-2 text-base font-bold uppercase tracking-wide leading-6 text-gruvbox-fg transition-none focus:outline-none
-                              ${
-                                router.pathname.match(sidebarLink.activeRegExp)
-                                  ? "border-l-4 border-gruvbox-green-bright bg-gruvbox-bg1 text-gruvbox-green-bright"
-                                  : "border-l-4 border-transparent hover:border-gruvbox-fg3 hover:bg-gruvbox-bg"
-                              }`}
-                            >
-                              {sidebarLink.svgIcon}
-                              {intl.formatMessage(
-                                menuMessages[sidebarLink.messagesKey]
-                              )}
-                            </a>
-                          );
-                        }
                         return (
                           <Link
                             key={`mobile-${sidebarLink.messagesKey}`}
@@ -318,32 +250,6 @@ const Sidebar = ({ open, setClosed }: SidebarProps) => {
                       })
                     : true
                 ).map((sidebarLink) => {
-                  if (sidebarLink.messagesKey === "watch") {
-                    return (
-                      <a
-                        key={`desktop-${sidebarLink.messagesKey}`}
-                        role="button"
-                        tabIndex={0}
-                        onClick={handlePlexLaunch}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            handlePlexLaunch();
-                          }
-                        }}
-                        className={`group flex items-center px-2 py-2 text-lg font-bold uppercase tracking-wide leading-6 text-gruvbox-fg transition-none focus:outline-none
-                        ${
-                          router.pathname.match(sidebarLink.activeRegExp)
-                            ? "border-l-4 border-gruvbox-green-bright bg-gruvbox-bg1 text-gruvbox-green-bright"
-                            : "border-l-4 border-transparent hover:border-gruvbox-fg3 hover:bg-gruvbox-bg"
-                        }`}
-                      >
-                        {sidebarLink.svgIcon}
-                        {intl.formatMessage(
-                          menuMessages[sidebarLink.messagesKey]
-                        )}
-                      </a>
-                    );
-                  }
                   return (
                     <Link
                       key={`desktop-${sidebarLink.messagesKey}`}
