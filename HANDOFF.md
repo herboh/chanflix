@@ -21,6 +21,8 @@ Session date: 2026-07-08 → 09. Integration branch: `dev`. Detailed running log
 |---|---|
 | `bd39348` | Dockerfile `COMMIT_TAG` defaults to `local`; prod deploys must use `scripts/deploy-chanflix-prod.sh` (passes real SHA). |
 | `da1df53` | **Request tagging fixed and fail-soft.** Root cause: tag create/read failures threw inside the TypeORM `@AfterInsert/@AfterUpdate` save hook (`sendToRadarr/sendToSonarr` rethrow), failing the whole request — that's why enabling `tagRequests` used to break requesting. Now: `resolveRequestUserTagId()` in `server/lib/requestTags.ts` reuses legacy `"4 - name"` tags, creates sanitized `request-<id>-<name>` labels, retries a re-read after failed create (races / read-only keys), and returns undefined on any failure — a tag can never block a request. 4 new unit tests; also pinned a date-bomb test in the TMDB cache suite. |
+| `0c052e2` | **Quality trigger plumbing (goal 6).** Per-user `qualityTriggers` config on `user_settings` (migration smoke-tested), GET/POST `/api/v1/user/:id/settings/quality-triggers`, no-op `evaluateQualityTriggers()` hook in sendToRadarr/sendToSonarr (the single place rules land later), MANAGE_USERS-gated settings tab stub. |
+| request-flow merge | **Post-request popup + download webhook (goal 9).** Request modals show a success pane (poster, approved/pending status, progress link). `POST /api/v1/webhooks/servarr`: secret-authenticated (auto-generated `main.webhookSecret`, fail-closed, constant-time), Radarr/Sonarr import events → downloadTracker refresh + 60s-debounced Plex recently-added scan. Radarr/Sonarr Connect setup steps in `CHANFLIX_DEV_SERVER.md`. |
 | `cbeda03`/`1ab40ce`/`a1dbfc5` | Roadmap + progress bookkeeping in `CHANFLIX_STATUS.md`. |
 
 Pre-session context (earlier passes, already on `dev`): external API cache TTL/retry/stale-fallback fixes, TMDB persistent metadata cache + nightly prewarm, download history persistence, Operations page v1, polling reductions, docs-route removal, and the `021aefe` stats/library visibility-leak fixes.
@@ -33,8 +35,6 @@ Pre-session context (earlier passes, already on `dev`): external API cache TTL/r
 ## In flight (agents working on worktree branches)
 
 - **`feat/ops-now`** (goals 1–4, 8) — committed so far: Tautulli `get_activity` integration + `GET /api/v1/stats/now` (streams / active downloads / finished-in-5-min, with posters), home Now panel + compact/scrollable home widgets. Remaining: fold Downloads page into Operations (+nav/redirect), retry-search button (route + Operations/Library UI), Library missing-vs-processing classification, remove Open Plex.
-- **`feat/quality-triggers`** (goal 6) — server plumbing done (per-user settings storage, API, no-op `evaluateQualityTriggers` hook in the request pipeline); remaining: user-settings UI stub, tests, migration smoke.
-- **`feat/request-flow`** (goal 9) — in progress: post-request success pane in RequestModal (poster/status/link), then inbound `POST /api/v1/webhooks/servarr` (shared secret, Radarr/Sonarr download-complete → downloadTracker refresh + debounced availability scan), docs for Radarr/Sonarr Connect setup, tests.
 
 ## Left to do
 

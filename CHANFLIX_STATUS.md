@@ -10,13 +10,13 @@ Feature branches in flight; merge into `dev` after review + typecheck/test/build
 
 - [ ] `feat/ops-now` — Operations overhaul + home "Now" panel: Tautulli `get_activity` integration, `/api/v1/stats/now` (live streams, active downloads, downloads finished <5 min, with posters), compact Popular This Month + scrollable Recent Activity with visible timestamps, fold Downloads page into Operations, Radarr/Sonarr retry (search) button, Library "on Radarr but not downloaded" classification, shelve "Open Plex" sidebar action.
 - [ ] `feat/design-overhaul` — READY FOR VISUAL REVIEW (do not merge until approved): gruvbox terminal system — warm near-black neutrals, green primary/orange secondary accents (no purple/indigo left), square corners, mono accents, snappy 120ms motion; see `DESIGN.md` on the branch. Rebased onto dev; typecheck + production build verified. Review focus: home widgets, settings pages, TitleCard hover, badge contrast, squared pills/chips.
-- [ ] `feat/quality-triggers` — per-user quality trigger plumbing + UX stubs (details later).
-- [ ] `feat/request-flow` — post-request status popup; inbound Radarr/Sonarr download-complete webhook triggering an availability scan.
 - [ ] Final: merge, `yarn test:unit` + `yarn typecheck` + build, migration smoke if entities changed, deploy via `scripts/deploy-chanflix-prod.sh`.
 
 ### DONE (this session)
 
 - [x] Committed pending Dockerfile `COMMIT_TAG=local` default + deploy-path docs (`bd39348`).
+- [x] `feat/request-flow` merged to dev: post-request success pane in the movie/TV request modals (poster, approved/pending status, progress link; no new polling), and `POST /api/v1/webhooks/servarr` — secret-authenticated (auto-generated `main.webhookSecret` in settings.json, `X-Webhook-Secret` header or `?secret=`, constant-time, fail-closed), Radarr/Sonarr import events trigger a downloadTracker refresh + a 60s-debounced Plex recently-added scan. Setup steps in `CHANFLIX_DEV_SERVER.md`.
+- [x] `feat/quality-triggers` merged to dev (`0c052e2`): per-user quality trigger plumbing — `qualityTriggers` JSON column on `user_settings` (migration `1767897200000`, smoke-tested), GET/POST `/api/v1/user/:id/settings/quality-triggers` (own-profile-or-admin read, MANAGE_USERS write), no-op `evaluateQualityTriggers()` hook wired into sendToRadarr/sendToSonarr where rules will land, and a MANAGE_USERS-gated Quality Triggers settings tab stub (enable toggle + coming-soon profile ceiling). Rule details intentionally deferred.
 - [x] `fix/request-tags` merged to dev (`da1df53`): per-user request tagging is now fail-soft — root cause was tag-create failures rethrowing inside the TypeORM save hook, failing the entire request. Legacy `"4 - name"` tags are reused, create races retried via re-read, and a tag failure can never block a request. Safe to re-enable `tagRequests` on Radarr + Sonarr; if logs show `Failed to create user tag`, the servarr API key lacks write access to `/tag`.
 
 ## Working Rules
