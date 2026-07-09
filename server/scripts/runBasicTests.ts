@@ -24,6 +24,10 @@ import {
   isRequestUserTag,
   resolveRequestUserTagId,
 } from '@server/lib/requestTags';
+import {
+  isValidWebhookSecret,
+  parseServarrWebhook,
+} from '@server/lib/servarrWebhook';
 import type { User } from '@server/entity/User';
 
 type TestCase = {
@@ -492,6 +496,81 @@ const tests: TestCase[] = [
       assert.equal(recent[0].outcome, 'cleared');
       assert.equal(recent[1].title, 'Finished Movie');
       assert.equal(recent[1].outcome, 'completed');
+    },
+  },
+  {
+    name: 'servarr webhook parses Radarr download payloads',
+    run: () => {
+      const event = parseServarrWebhook({
+        eventType: 'Download',
+        movie: { tmdbId: 603, title: 'The Matrix' },
+        isUpgrade: false,
+      });
+
+      assert.equal(event.service, 'radarr');
+      assert.equal(event.isDownloadEvent, true);
+      assert.equal(event.isTestEvent, false);
+      assert.equal(event.tmdbId, 603);
+      assert.equal(event.title, 'The Matrix');
+    },
+  },
+  {
+    name: 'servarr webhook parses Sonarr download and test payloads',
+    run: () => {
+      const download = parseServarrWebhook({
+        eventType: 'Download',
+        series: { tvdbId: 121361, title: 'Game of Thrones' },
+        episodes: [{ episodeNumber: 1 }, { episodeNumber: 2 }],
+      });
+
+      assert.equal(download.service, 'sonarr');
+      assert.equal(download.isDownloadEvent, true);
+      assert.equal(download.tvdbId, 121361);
+      assert.equal(download.episodeCount, 2);
+
+      const test = parseServarrWebhook({
+        eventType: 'Test',
+        series: { tvdbId: 1, title: 'Test Title' },
+      });
+
+      assert.equal(test.isTestEvent, true);
+      assert.equal(test.isDownloadEvent, false);
+
+      const junk = parseServarrWebhook(null);
+
+      assert.equal(junk.service, 'unknown');
+      assert.equal(junk.isDownloadEvent, false);
+      assert.equal(junk.eventType, '');
+    },
+  },
+  {
+    name: 'servarr webhook ignores non-download events',
+    run: () => {
+      const grab = parseServarrWebhook({
+        eventType: 'Grab',
+        movie: { tmdbId: 603, title: 'The Matrix' },
+      });
+
+      assert.equal(grab.isDownloadEvent, false);
+
+      const health = parseServarrWebhook({ eventType: 'Health' });
+
+      assert.equal(health.isDownloadEvent, false);
+    },
+  },
+  {
+    name: 'webhook secret validation is strict and fail-closed',
+    run: () => {
+      assert.equal(isValidWebhookSecret('sekrit', 'sekrit'), true);
+      assert.equal(isValidWebhookSecret('wrong', 'sekrit'), false);
+      assert.equal(isValidWebhookSecret('sekrit-longer', 'sekrit'), false);
+      assert.equal(isValidWebhookSecret('', 'sekrit'), false);
+      assert.equal(isValidWebhookSecret(undefined, 'sekrit'), false);
+      assert.equal(isValidWebhookSecret({ evil: true }, 'sekrit'), false);
+      // Unset configured secret rejects everything.
+      assert.equal(isValidWebhookSecret('anything', ''), false);
+      assert.equal(isValidWebhookSecret('anything', undefined), false);
+      assert.equal(isValidWebhookSecret('', ''), false);
     },
   },
 ];

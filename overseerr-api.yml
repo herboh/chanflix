@@ -1898,6 +1898,50 @@ paths:
                   appDataPath:
                     type: string
                     example: /app/config
+  /webhooks/servarr:
+    post:
+      summary: Radarr/Sonarr download-complete webhook
+      description: |
+        Inbound webhook for Radarr/Sonarr Connect notifications. Authenticated
+        with the shared webhook secret (X-Webhook-Secret header or ?secret=
+        query parameter), not with a session or API key. Download events
+        refresh the download queues and trigger a debounced Plex
+        recently-added scan so availability updates quickly.
+      security: []
+      tags:
+        - public
+      parameters:
+        - in: query
+          name: secret
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                eventType:
+                  type: string
+                  example: Download
+      responses:
+        '202':
+          description: Event accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: accepted
+                  test:
+                    type: boolean
+        '401':
+          description: Missing or invalid webhook secret
   /settings/main:
     get:
       summary: Get main settings

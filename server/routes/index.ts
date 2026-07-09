@@ -38,8 +38,13 @@ import serviceRoutes from './service';
 import statsRoutes from './stats';
 import tvRoutes from './tv';
 import user from './user';
+import webhookRoutes from './webhooks';
 
 const router = Router();
+
+// Secret-authenticated machine hooks; mounted before checkUser since they
+// carry no session or API key.
+router.use('/webhooks', webhookRoutes);
 
 router.use(checkUser);
 

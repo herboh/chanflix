@@ -123,20 +123,28 @@ app
       }
     });
     if (settings.main.csrfProtection) {
-      server.use(
-        csurf({
-          cookie: {
-            httpOnly: true,
-            sameSite: true,
-            secure: !dev,
-          },
-        })
-      );
-      server.use((req, res, next) => {
-        res.cookie("XSRF-TOKEN", req.csrfToken(), {
+      const csrfMiddleware = csurf({
+        cookie: {
+          httpOnly: true,
           sameSite: true,
           secure: !dev,
-        });
+        },
+      });
+      server.use((req, res, next) => {
+        // Machine webhooks authenticate with a shared secret and carry no
+        // CSRF token.
+        if (req.path.startsWith("/api/v1/webhooks")) {
+          return next();
+        }
+        return csrfMiddleware(req, res, next);
+      });
+      server.use((req, res, next) => {
+        if (req.csrfToken) {
+          res.cookie("XSRF-TOKEN", req.csrfToken(), {
+            sameSite: true,
+            secure: !dev,
+          });
+        }
         next();
       });
     }
