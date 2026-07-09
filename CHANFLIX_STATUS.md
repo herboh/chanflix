@@ -2,6 +2,23 @@
 
 Last updated: 2026-07-08
 
+## Overhaul Roadmap (2026-07-08 session)
+
+Feature branches in flight; merge into `dev` after review + typecheck/test/build.
+
+### TODO
+
+- [ ] `feat/ops-now` — Operations overhaul + home "Now" panel: Tautulli `get_activity` integration, `/api/v1/stats/now` (live streams, active downloads, downloads finished <5 min, with posters), compact Popular This Month + scrollable Recent Activity with visible timestamps, fold Downloads page into Operations, Radarr/Sonarr retry (search) button, Library "on Radarr but not downloaded" classification, shelve "Open Plex" sidebar action.
+- [ ] `fix/request-tags` — make per-user request tagging fail-soft (tag create/lookup failure must never block the request), so `tagRequests` can be re-enabled on Radarr and Sonarr.
+- [ ] `feat/design-overhaul` — exploratory visual pass: square/old-school hacker aesthetic, modern niceties, no rounded-purple slop. Own test branch, review before merge.
+- [ ] `feat/quality-triggers` — per-user quality trigger plumbing + UX stubs (details later).
+- [ ] `feat/request-flow` — post-request status popup; inbound Radarr/Sonarr download-complete webhook triggering an availability scan.
+- [ ] Final: merge, `yarn test:unit` + `yarn typecheck` + build, migration smoke if entities changed, deploy via `scripts/deploy-chanflix-prod.sh`.
+
+### DONE (this session)
+
+- [x] Committed pending Dockerfile `COMMIT_TAG=local` default + deploy-path docs (`bd39348`).
+
 ## Working Rules
 
 - Keep `dev` as the integration branch and promote to `prod` only after local build/typecheck and a container smoke test.
