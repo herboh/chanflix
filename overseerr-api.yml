@@ -4165,6 +4165,93 @@ paths:
                   permissions:
                     type: number
                     example: 2
+  /user/{userId}/settings/quality-triggers:
+    get:
+      summary: Get quality trigger settings for a user
+      description: Returns quality trigger settings for a specific user. Requires `MANAGE_USERS` permission if viewing other users.
+      tags:
+        - users
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: number
+      responses:
+        '200':
+          description: User quality trigger settings returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qualityTriggers:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        example: false
+                      maxProfileId:
+                        type: number
+                        nullable: true
+                      rules:
+                        type: array
+                        items: {}
+                        nullable: true
+    post:
+      summary: Update quality trigger settings for a user
+      description: Updates and returns quality trigger settings for a specific user. Requires `MANAGE_USERS` permission.
+      tags:
+        - users
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                qualityTriggers:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    maxProfileId:
+                      type: number
+                      nullable: true
+                    rules:
+                      type: array
+                      items: {}
+                      nullable: true
+                  required:
+                    - enabled
+              required:
+                - qualityTriggers
+      responses:
+        '200':
+          description: Updated user quality trigger settings returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qualityTriggers:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      maxProfileId:
+                        type: number
+                        nullable: true
+                      rules:
+                        type: array
+                        items: {}
+                        nullable: true
   /user/{userId}/watch_data:
     get:
       summary: Get watch data

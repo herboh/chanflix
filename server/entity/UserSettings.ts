@@ -1,5 +1,12 @@
-import type { NotificationAgentTypes } from '@server/interfaces/api/userSettingsInterfaces';
+import type {
+  NotificationAgentTypes,
+  UserQualityTriggers,
+} from '@server/interfaces/api/userSettingsInterfaces';
 import { hasNotificationType, Notification } from '@server/lib/notifications';
+import {
+  parseQualityTriggers,
+  serializeQualityTriggers,
+} from '@server/lib/qualityTriggers';
 import { NotificationAgentKey } from '@server/lib/settings';
 import {
   Column,
@@ -65,6 +72,18 @@ export class UserSettings {
 
   @Column({ nullable: true })
   public watchlistSyncTv?: boolean;
+
+  @Column({
+    type: 'text',
+    nullable: true,
+    transformer: {
+      from: (value: string | null): UserQualityTriggers =>
+        parseQualityTriggers(value),
+      to: (value: UserQualityTriggers | null): string | null =>
+        serializeQualityTriggers(value),
+    },
+  })
+  public qualityTriggers?: UserQualityTriggers;
 
   @Column({
     type: 'text',

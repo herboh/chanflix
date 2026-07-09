@@ -16,6 +16,7 @@ import { getRepository } from '@server/datasource';
 import type { MediaRequestBody } from '@server/interfaces/api/requestInterfaces';
 import notificationManager, { Notification } from '@server/lib/notifications';
 import { Permission } from '@server/lib/permissions';
+import { evaluateQualityTriggers } from '@server/lib/qualityTriggers';
 import { resolveRequestUserTagId } from '@server/lib/requestTags';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -733,6 +734,17 @@ export class MediaRequest {
           );
         }
 
+        qualityProfile = evaluateQualityTriggers(
+          this.requestedBy,
+          qualityProfile,
+          {
+            mediaType: 'movie',
+            is4k: this.is4k,
+            requestId: this.id,
+            mediaId: this.media.id,
+          }
+        );
+
         if (this.tags && !isEqual(this.tags, radarrSettings.tags)) {
           tags = this.tags;
           logger.info(`Request has override tags`, {
@@ -1015,6 +1027,17 @@ export class MediaRequest {
             }
           );
         }
+
+        qualityProfile = evaluateQualityTriggers(
+          this.requestedBy,
+          qualityProfile,
+          {
+            mediaType: 'tv',
+            is4k: this.is4k,
+            requestId: this.id,
+            mediaId: this.media.id,
+          }
+        );
 
         if (
           this.languageProfileId &&

@@ -18,6 +18,16 @@ export interface UserSettingsGeneralResponse {
   watchlistSyncTv?: boolean;
 }
 
+export interface UserQualityTriggers {
+  enabled: boolean;
+  maxProfileId?: number;
+  rules?: unknown[];
+}
+
+export interface UserSettingsQualityTriggersResponse {
+  qualityTriggers: UserQualityTriggers;
+}
+
 export type NotificationAgentTypes = Record<NotificationAgentKey, number>;
 export interface UserSettingsNotificationsResponse {
   emailEnabled?: boolean;
