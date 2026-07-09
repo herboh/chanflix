@@ -12,10 +12,6 @@ It still does the request-manager job: Plex users can find movies and series, re
 
 ![Chanflix home dashboard](./public/screenshots/home.svg)
 
-![Chanflix operations view](./public/screenshots/operations.svg)
-
-![Chanflix library view](./public/screenshots/library.svg)
-
 ## What It Does
 
 - Browse movies, series, trending titles, recent requests, Plex watchlist items, and library shelves.
