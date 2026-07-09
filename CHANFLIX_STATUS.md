@@ -184,3 +184,7 @@ Before deploy:
 ## Open Questions
 
 - Confirm whether the nightly TMDB prewarm should stay scoped to known local media or also crawl popular/discover pages.
+
+## Known Issue — deferred (2026-07-09)
+
+- [ ] **Posters randomly fail to load = app-level API rate limiter.** Real-browser capture shows bursts of `GET /api/v1/movie/{id}` and `/api/v1/request/{id}` returning HTTP 429 (`retry-after: 1`, `x-retry-in: ~832ms`, no `cf-ray` → Express, not Cloudflare). Every TitleCard fetches its own media/request status on mount, so a grid fans out 20-30+ concurrent calls and the limiter throttles some → those cards render with no poster/status. Single/sequential requests are fine; only concurrent bursts trip it. Fix later: raise/scope the `express-rate-limit` config (dep 6.7.0) to exclude authenticated `/movie/*` and `/request/*` GETs, and/or batch-dedupe TitleCard status fetches. See memory `chanflix-poster-429-rootcause`.
