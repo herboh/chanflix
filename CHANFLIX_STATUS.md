@@ -9,7 +9,7 @@ Feature branches in flight; merge into `dev` after review + typecheck/test/build
 ### TODO
 
 - [ ] `feat/ops-now` — Operations overhaul + home "Now" panel: Tautulli `get_activity` integration, `/api/v1/stats/now` (live streams, active downloads, downloads finished <5 min, with posters), compact Popular This Month + scrollable Recent Activity with visible timestamps, fold Downloads page into Operations, Radarr/Sonarr retry (search) button, Library "on Radarr but not downloaded" classification, shelve "Open Plex" sidebar action.
-- [ ] `feat/design-overhaul` — exploratory visual pass: square/old-school hacker aesthetic, modern niceties, no rounded-purple slop. Own test branch, review before merge.
+- [ ] `feat/design-overhaul` — READY FOR VISUAL REVIEW (do not merge until approved): gruvbox terminal system — warm near-black neutrals, green primary/orange secondary accents (no purple/indigo left), square corners, mono accents, snappy 120ms motion; see `DESIGN.md` on the branch. Rebased onto dev; typecheck + production build verified. Review focus: home widgets, settings pages, TitleCard hover, badge contrast, squared pills/chips.
 - [ ] `feat/quality-triggers` — per-user quality trigger plumbing + UX stubs (details later).
 - [ ] `feat/request-flow` — post-request status popup; inbound Radarr/Sonarr download-complete webhook triggering an availability scan.
 - [ ] Final: merge, `yarn test:unit` + `yarn typecheck` + build, migration smoke if entities changed, deploy via `scripts/deploy-chanflix-prod.sh`.
