@@ -4,6 +4,7 @@ import TheMovieDb from '@server/api/themoviedb';
 import type { TmdbKeyword } from '@server/api/themoviedb/interfaces';
 import { MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
+import DiscoverCollection from '@server/entity/DiscoverCollection';
 import Media from '@server/entity/Media';
 import { User } from '@server/entity/User';
 import type {
@@ -49,6 +50,137 @@ export const createTmdbWithRegionLanguage = (user?: User): TheMovieDb => {
 };
 
 const discoverRoutes = Router();
+
+const CRITERION_COMPANY_ID = 10932;
+const CRITERION_CACHE_KEY = 'criterion-collection';
+const CRITERION_CACHE_TTL = 1000 * 60 * 60 * 36;
+let criterionRefreshPromise:
+  | Promise<{
+      results: Awaited<ReturnType<TheMovieDb['getDiscoverMovies']>>['results'];
+      fetchedAt: Date;
+    }>
+  | undefined;
+
+const shuffleWithSeed = <T>(items: T[], seed: number): T[] => {
+  const result = [...items];
+  let state = seed || 1;
+  const random = () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+
+  return result;
+};
+
+const getCriterionCollection = async (): Promise<{
+  results: Awaited<ReturnType<TheMovieDb['getDiscoverMovies']>>['results'];
+  fetchedAt: Date;
+}> => {
+  const repository = getRepository(DiscoverCollection);
+  const existing = await repository.findOne({
+    where: { collectionKey: CRITERION_CACHE_KEY },
+  });
+
+  if (existing && existing.expiresAt > new Date()) {
+    return {
+      results: JSON.parse(existing.payload),
+      fetchedAt: existing.fetchedAt,
+    };
+  }
+
+  if (criterionRefreshPromise) {
+    return criterionRefreshPromise;
+  }
+
+  criterionRefreshPromise = (async () => {
+    const tmdb = new TheMovieDb({ region: 'US', originalLanguage: '' });
+    const pages = await Promise.all(
+      [1, 2, 3, 4, 5].map((page) =>
+        tmdb.getDiscoverMovies({
+          page,
+          language: 'en-US',
+          studio: String(CRITERION_COMPANY_ID),
+          sortBy: 'vote_average.desc',
+          voteCountGte: '50',
+        })
+      )
+    );
+    const results = pages
+      .flatMap((page) => page.results)
+      .filter(
+        (movie, index, all) =>
+          all.findIndex((item) => item.id === movie.id) === index
+      );
+    const fetchedAt = new Date();
+    const expiresAt = new Date(fetchedAt.getTime() + CRITERION_CACHE_TTL);
+
+    if (existing) {
+      existing.payload = JSON.stringify(results);
+      existing.fetchedAt = fetchedAt;
+      existing.expiresAt = expiresAt;
+      await repository.save(existing);
+    } else {
+      await repository.save(
+        new DiscoverCollection({
+          collectionKey: CRITERION_CACHE_KEY,
+          payload: JSON.stringify(results),
+          fetchedAt,
+          expiresAt,
+        })
+      );
+    }
+
+    return { results, fetchedAt };
+  })();
+
+  try {
+    return await criterionRefreshPromise;
+  } finally {
+    criterionRefreshPromise = undefined;
+  }
+};
+
+discoverRoutes.get('/criterion', async (req, res, next) => {
+  try {
+    const { results, fetchedAt } = await getCriterionCollection();
+    const shuffled = shuffleWithSeed(
+      results,
+      Math.floor(fetchedAt.getTime() / CRITERION_CACHE_TTL)
+    );
+    const media = await Media.getRelatedMedia(
+      shuffled.map((result) => result.id)
+    );
+
+    return res.status(200).json({
+      page: 1,
+      totalPages: 1,
+      totalResults: shuffled.length,
+      results: shuffled.slice(0, 20).map((result) =>
+        mapMovieResult(
+          result,
+          media.find(
+            (item) =>
+              item.tmdbId === result.id && item.mediaType === MediaType.MOVIE
+          )
+        )
+      ),
+    });
+  } catch (e) {
+    logger.error('Unable to retrieve Criterion Collection recommendations', {
+      label: 'API',
+      errorMessage: e.message,
+    });
+    return next({
+      status: 500,
+      message: 'Unable to retrieve Criterion Collection recommendations.',
+    });
+  }
+});
 
 const QueryFilterOptions = z.object({
   page: z.coerce.string().optional(),

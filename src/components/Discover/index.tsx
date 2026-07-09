@@ -257,6 +257,16 @@ const Discover = () => {
               />
             );
             break;
+          case DiscoverSliderType.CRITERION_COLLECTION:
+            sliderComponent = (
+              <MediaSlider
+                sliderKey="criterion-collection"
+                title={intl.formatMessage(sliderTitles.criterioncollection)}
+                url="/api/v1/discover/criterion"
+                linkUrl="/discover/movies?studio=10932"
+              />
+            );
+            break;
           case DiscoverSliderType.MOVIE_GENRES:
             sliderComponent = <MovieGenreSlider />;
             break;

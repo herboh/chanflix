@@ -22,6 +22,7 @@ export enum DiscoverSliderType {
   TMDB_NETWORK,
   TMDB_MOVIE_STREAMING_SERVICES,
   TMDB_TV_STREAMING_SERVICES,
+  CRITERION_COLLECTION,
 }
 
 export const defaultSliders: Partial<DiscoverSlider>[] = [
@@ -96,5 +97,11 @@ export const defaultSliders: Partial<DiscoverSlider>[] = [
     enabled: true,
     isBuiltIn: true,
     order: 11,
+  },
+  {
+    type: DiscoverSliderType.CRITERION_COLLECTION,
+    enabled: true,
+    isBuiltIn: true,
+    order: 12,
   },
 ];
