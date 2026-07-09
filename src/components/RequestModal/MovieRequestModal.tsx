@@ -3,9 +3,10 @@ import Modal from '@app/components/Common/Modal';
 import type { RequestOverrides } from '@app/components/RequestModal/AdvancedRequester';
 import AdvancedRequester from '@app/components/RequestModal/AdvancedRequester';
 import QuotaDisplay from '@app/components/RequestModal/QuotaDisplay';
+import RequestSuccessPane from '@app/components/RequestModal/RequestSuccessPane';
 import { useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
-import { MediaStatus } from '@server/constants/media';
+import { MediaRequestStatus, MediaStatus } from '@server/constants/media';
 import type { MediaRequest } from '@server/entity/MediaRequest';
 import type { QuotaResponse } from '@server/interfaces/api/userInterfaces';
 import { Permission } from '@server/lib/permissions';
@@ -53,6 +54,9 @@ const MovieRequestModal = ({
   is4k = false,
 }: RequestModalProps) => {
   const [isUpdating, setIsUpdating] = useState(false);
+  const [submittedRequest, setSubmittedRequest] = useState<MediaRequest | null>(
+    null
+  );
   const [requestOverrides, setRequestOverrides] =
     useState<RequestOverrides | null>(null);
   const { addToast } = useToasts();
@@ -97,29 +101,9 @@ const MovieRequestModal = ({
       mutate('/api/v1/request?filter=all&take=10&sort=modified&skip=0');
 
       if (response.data) {
-        if (onComplete) {
-          onComplete(
-            hasPermission(
-              is4k ? Permission.AUTO_APPROVE_4K : Permission.AUTO_APPROVE
-            ) ||
-              hasPermission(
-                is4k
-                  ? Permission.AUTO_APPROVE_4K_MOVIE
-                  : Permission.AUTO_APPROVE_MOVIE
-              )
-              ? MediaStatus.PROCESSING
-              : MediaStatus.PENDING
-          );
-        }
-        addToast(
-          <span>
-            {intl.formatMessage(messages.requestSuccess, {
-              title: data?.title,
-              strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
-            })}
-          </span>,
-          { appearance: 'success', autoDismiss: true }
-        );
+        // Hold onComplete until the user dismisses the success pane; parents
+        // close the modal when onComplete fires.
+        setSubmittedRequest(response.data);
       }
     } catch (e) {
       addToast(intl.formatMessage(messages.requesterror), {
@@ -129,7 +113,17 @@ const MovieRequestModal = ({
     } finally {
       setIsUpdating(false);
     }
-  }, [data, onComplete, addToast, requestOverrides, hasPermission, intl, is4k]);
+  }, [data, addToast, requestOverrides, intl, is4k]);
+
+  const dismissSuccess = useCallback(() => {
+    if (onComplete) {
+      onComplete(
+        submittedRequest?.status === MediaRequestStatus.APPROVED
+          ? MediaStatus.PROCESSING
+          : MediaStatus.PENDING
+      );
+    }
+  }, [onComplete, submittedRequest]);
 
   const cancelRequest = async () => {
     setIsUpdating(true);
@@ -207,6 +201,29 @@ const MovieRequestModal = ({
       setIsUpdating(false);
     }
   };
+
+  if (submittedRequest) {
+    return (
+      <Modal
+        backgroundClickable
+        onCancel={dismissSuccess}
+        onOk={dismissSuccess}
+        okText="Done"
+        okButtonType="success"
+        title="Request Submitted"
+        backdrop={`https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/${data?.backdropPath}`}
+      >
+        <RequestSuccessPane
+          mediaType="movie"
+          tmdbId={tmdbId}
+          title={data?.title}
+          year={data?.releaseDate}
+          posterPath={data?.posterPath}
+          status={submittedRequest.status}
+        />
+      </Modal>
+    );
+  }
 
   if (editRequest) {
     const isOwner = editRequest.requestedBy.id === user?.id;
