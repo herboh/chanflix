@@ -32,6 +32,7 @@ router.get('/*', async (req, res) => {
       imagePath,
       errorMessage: e.message,
     });
+    res.setHeader('Cache-Control', 'no-store');
     res.status(500).send();
   }
 });

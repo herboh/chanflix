@@ -19,10 +19,108 @@ type ImageResponse = {
 };
 
 const DEFAULT_IMAGE_MAX_AGE = 86400 * 30;
+const MIN_IMAGE_BYTES = 32;
+
+type CachedImageFileMeta = {
+  maxAge: number;
+  expireAt: number;
+  etag: string;
+  extension: string;
+};
 
 const baseCacheDirectory = process.env.CONFIG_DIRECTORY
   ? `${process.env.CONFIG_DIRECTORY}/cache/images`
   : path.join(__dirname, '../../config/cache/images');
+
+export const getImageExtension = (imagePath: string): string => {
+  const filename = imagePath.split('?')[0];
+  const extension = filename.split('.').pop()?.toLowerCase() ?? '';
+
+  return extension === 'jpeg' ? 'jpg' : extension;
+};
+
+export const parseCachedImageFilename = (
+  filename: string
+): CachedImageFileMeta | null => {
+  const parts = filename.split('.');
+
+  if (parts.length < 4) {
+    return null;
+  }
+
+  const [maxAgeSt, expireAtSt, ...rest] = parts;
+  const extension = rest.pop()?.toLowerCase() ?? '';
+  const maxAge = Number(maxAgeSt);
+  const expireAt = Number(expireAtSt);
+  const etag = rest.join('.');
+
+  if (
+    !Number.isFinite(maxAge) ||
+    maxAge <= 0 ||
+    !Number.isFinite(expireAt) ||
+    expireAt <= 0 ||
+    !extension
+  ) {
+    return null;
+  }
+
+  return {
+    maxAge,
+    expireAt,
+    etag,
+    extension: extension === 'jpeg' ? 'jpg' : extension,
+  };
+};
+
+export const isValidImageBuffer = (
+  buffer: Buffer,
+  extension?: string,
+  contentType?: string
+): boolean => {
+  if (buffer.length < MIN_IMAGE_BYTES) {
+    return false;
+  }
+
+  const normalizedExtension = extension?.toLowerCase();
+  const normalizedContentType = contentType?.toLowerCase();
+
+  if (
+    normalizedContentType &&
+    !normalizedContentType.startsWith('image/')
+  ) {
+    return false;
+  }
+
+  const isJpeg =
+    buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng =
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a;
+  const isWebp =
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP';
+  const isGif = buffer.toString('ascii', 0, 3) === 'GIF';
+
+  switch (normalizedExtension) {
+    case 'jpg':
+    case 'jpeg':
+      return isJpeg;
+    case 'png':
+      return isPng;
+    case 'webp':
+      return isWebp;
+    case 'gif':
+      return isGif;
+    default:
+      return isJpeg || isPng || isWebp || isGif;
+  }
+};
 
 class ImageProxy {
   public static async clearCache(key: string) {
@@ -39,12 +137,20 @@ class ImageProxy {
         const imageFiles = await promises.readdir(filePath);
 
         for (const imageFile of imageFiles) {
-          const [, expireAtSt] = imageFile.split('.');
-          const expireAt = Number(expireAtSt);
+          const imageFilePath = path.join(filePath, imageFile);
+          const meta = parseCachedImageFilename(imageFile);
           const now = Date.now();
+          const buffer = meta
+            ? await promises.readFile(imageFilePath).catch(() => null)
+            : null;
 
-          if (now > expireAt) {
-            await promises.rm(path.join(filePath, imageFile));
+          if (
+            !meta ||
+            !buffer ||
+            now > meta.expireAt ||
+            !isValidImageBuffer(buffer, meta.extension)
+          ) {
+            await promises.rm(imageFilePath, { force: true });
             deletedImages += 1;
           }
         }
@@ -178,18 +284,32 @@ class ImageProxy {
       const now = Date.now();
 
       for (const file of files) {
-        const [maxAgeSt, expireAtSt, etag, extension] = file.split('.');
-        const buffer = await promises.readFile(join(directory, file));
-        const expireAt = Number(expireAtSt);
-        const maxAge = Number(maxAgeSt);
+        const filePath = join(directory, file);
+        const meta = parseCachedImageFilename(file);
+
+        if (!meta) {
+          await promises.rm(filePath, { force: true });
+          continue;
+        }
+
+        const buffer = await promises.readFile(filePath);
+
+        if (!isValidImageBuffer(buffer, meta.extension)) {
+          await promises.rm(filePath, { force: true });
+          logger.warn('Removed invalid cached image response', {
+            label: 'Image Cache',
+            cacheKey,
+          });
+          continue;
+        }
 
         return {
           meta: {
-            curRevalidate: maxAge,
-            revalidateAfter: maxAge * 1000 + now,
-            isStale: now > expireAt,
-            etag,
-            extension,
+            curRevalidate: meta.maxAge,
+            revalidateAfter: meta.maxAge * 1000 + now,
+            isStale: now > meta.expireAt,
+            etag: meta.etag,
+            extension: meta.extension,
             cacheKey,
             cacheMiss: false,
           },
@@ -214,7 +334,18 @@ class ImageProxy {
       });
 
       const buffer = Buffer.from(response.data, 'binary');
-      const extension = path.split('.').pop() ?? '';
+      const extension = getImageExtension(path);
+
+      if (
+        !isValidImageBuffer(
+          buffer,
+          extension,
+          response.headers['content-type']
+        )
+      ) {
+        throw new Error('Upstream response was not a valid image');
+      }
+
       const maxAge = this.getMaxAge(response.headers['cache-control']);
       const expireAt = Date.now() + maxAge * 1000;
       const etag = (response.headers.etag ?? '').replace(/"/g, '');

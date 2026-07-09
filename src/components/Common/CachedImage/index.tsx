@@ -3,6 +3,7 @@ import type { ImageLoader, ImageProps } from 'next/image';
 import Image from 'next/image';
 
 const imageLoader: ImageLoader = ({ src }) => src;
+const IMAGE_PROXY_CACHE_BUST = '2';
 
 /**
  * The CachedImage component should be used wherever
@@ -17,7 +18,14 @@ const CachedImage = ({ src, ...props }: ImageProps) => {
     const parsedUrl = new URL(imageUrl);
 
     if (parsedUrl.host === 'image.tmdb.org' && currentSettings.cacheImages) {
-      imageUrl = imageUrl.replace('https://image.tmdb.org', '/imageproxy');
+      const proxiedUrl = imageUrl.replace(
+        'https://image.tmdb.org',
+        '/imageproxy'
+      );
+
+      imageUrl = `${proxiedUrl}${
+        proxiedUrl.includes('?') ? '&' : '?'
+      }v=${IMAGE_PROXY_CACHE_BUST}`;
     }
   }
 

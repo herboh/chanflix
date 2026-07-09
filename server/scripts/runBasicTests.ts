@@ -20,6 +20,11 @@ import { dedupeTmdbPrewarmCandidates } from '@server/lib/tmdbMetadataPrewarm';
 import { groupDownloadsBySeason } from '@server/lib/downloadEnrichment';
 import { classifyLocalMediaStatus } from '@server/lib/libraryStatus';
 import {
+  getImageExtension,
+  isValidImageBuffer,
+  parseCachedImageFilename,
+} from '@server/lib/imageproxy';
+import {
   buildPendingRequestSummary,
   isRecentlyFinished,
   mapActivitySession,
@@ -281,6 +286,53 @@ const tests: TestCase[] = [
       assert.ok(caches.sonarr);
       assert.ok(caches.library);
       assert.ok(caches.stats);
+    },
+  },
+  {
+    name: 'image cache validates cached image filenames and extensions',
+    run: () => {
+      assert.deepEqual(parseCachedImageFilename('3600.999999999999.etag.jpg'), {
+        maxAge: 3600,
+        expireAt: 999999999999,
+        etag: 'etag',
+        extension: 'jpg',
+      });
+      assert.deepEqual(
+        parseCachedImageFilename('3600.999999999999.etag.with.dots.webp'),
+        {
+          maxAge: 3600,
+          expireAt: 999999999999,
+          etag: 'etag.with.dots',
+          extension: 'webp',
+        }
+      );
+      assert.equal(parseCachedImageFilename('bad-cache-file'), null);
+      assert.equal(parseCachedImageFilename('0.999999999999.etag.jpg'), null);
+      assert.equal(getImageExtension('/t/p/w300/poster.jpeg?token=1'), 'jpg');
+    },
+  },
+  {
+    name: 'image cache rejects empty and non-image cached bodies',
+    run: () => {
+      const jpeg = Buffer.alloc(64);
+      jpeg[0] = 0xff;
+      jpeg[1] = 0xd8;
+      jpeg[2] = 0xff;
+
+      const png = Buffer.alloc(64);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
+
+      const webp = Buffer.alloc(64);
+      webp.write('RIFF', 0, 'ascii');
+      webp.write('WEBP', 8, 'ascii');
+
+      assert.equal(isValidImageBuffer(Buffer.alloc(0), 'jpg'), false);
+      assert.equal(isValidImageBuffer(Buffer.from('<html>nope</html>'), 'jpg'), false);
+      assert.equal(isValidImageBuffer(jpeg, 'jpg', 'image/jpeg'), true);
+      assert.equal(isValidImageBuffer(jpeg, 'png', 'image/jpeg'), false);
+      assert.equal(isValidImageBuffer(jpeg, 'jpg', 'text/html'), false);
+      assert.equal(isValidImageBuffer(png, 'png', 'image/png'), true);
+      assert.equal(isValidImageBuffer(webp, 'webp', 'image/webp'), true);
     },
   },
   {
