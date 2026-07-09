@@ -105,3 +105,29 @@ During smoke testing, watch for:
 - Radarr/Sonarr queue or tag errors.
 - Docs route errors.
 - Migration startup errors.
+
+## Radarr/Sonarr Download-Complete Webhook
+
+Chanflix exposes `POST /api/v1/webhooks/servarr` so Radarr and Sonarr can
+announce finished imports. On a download event it refreshes the download
+queues immediately and triggers a Plex recently-added scan (debounced to at
+most one scan per 60 seconds, skipped if one is already running), so
+availability flips well before the 5-minute scheduled scan.
+
+Authentication uses the shared webhook secret stored as `main.webhookSecret`
+in `config/settings.json` (auto-generated on first read after upgrade). It is
+independent of the admin API key on purpose — Radarr/Sonarr only get scan
+nudging rights. Send it either as an `X-Webhook-Secret` header or a
+`?secret=` query parameter.
+
+Setup in Radarr and Sonarr (same steps for both):
+
+1. Settings → Connect → `+` → Webhook.
+2. Name: `Chanflix availability`.
+3. Notification Triggers: enable **On Import Complete** (Radarr) / **On
+   Import** (Sonarr). Optionally On Upgrade. Leave the rest off.
+4. URL: `http://<chanflix-host>:5055/api/v1/webhooks/servarr?secret=<webhookSecret>`
+   (or set URL without the query and add header `X-Webhook-Secret: <webhookSecret>`).
+5. Method: `POST`. Save — the Test button should return success (202).
+
+The secret's value can be read from `config/settings.json` on the server.

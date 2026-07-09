@@ -4,6 +4,7 @@ import Modal from '@app/components/Common/Modal';
 import type { RequestOverrides } from '@app/components/RequestModal/AdvancedRequester';
 import AdvancedRequester from '@app/components/RequestModal/AdvancedRequester';
 import QuotaDisplay from '@app/components/RequestModal/QuotaDisplay';
+import RequestSuccessPane from '@app/components/RequestModal/RequestSuccessPane';
 import SearchByNameModal from '@app/components/RequestModal/SearchByNameModal';
 import useSettings from '@app/hooks/useSettings';
 import { useUser } from '@app/hooks/useUser';
@@ -73,6 +74,9 @@ const TvRequestModal = ({
     (season) => season.seasonNumber
   );
   const { data, error } = useSWR<TvDetails>(`/api/v1/tv/${tmdbId}`);
+  const [submittedRequest, setSubmittedRequest] = useState<MediaRequest | null>(
+    null
+  );
   const [requestOverrides, setRequestOverrides] =
     useState<RequestOverrides | null>(null);
   const [selectedSeasons, setSelectedSeasons] = useState<number[]>(
@@ -204,18 +208,9 @@ const TvRequestModal = ({
       mutate('/api/v1/request?filter=all&take=10&sort=modified&skip=0');
 
       if (response.data) {
-        if (onComplete) {
-          onComplete(response.data.media.status);
-        }
-        addToast(
-          <span>
-            {intl.formatMessage(messages.requestSuccess, {
-              title: data?.name,
-              strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
-            })}
-          </span>,
-          { appearance: 'success', autoDismiss: true }
-        );
+        // Hold onComplete until the user dismisses the success pane; parents
+        // close the modal when onComplete fires.
+        setSubmittedRequest(response.data);
       }
     } catch (e) {
       addToast(intl.formatMessage(messages.requesterror), {
@@ -356,6 +351,36 @@ const TvRequestModal = ({
   };
 
   const isOwner = editRequest && editRequest.requestedBy.id === user?.id;
+
+  const dismissSuccess = () => {
+    if (onComplete && submittedRequest) {
+      onComplete(submittedRequest.media.status);
+    }
+  };
+
+  if (submittedRequest) {
+    return (
+      <Modal
+        backgroundClickable
+        onCancel={dismissSuccess}
+        onOk={dismissSuccess}
+        okText="Done"
+        okButtonType="success"
+        title="Request Submitted"
+        backdrop={`https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/${data?.backdropPath}`}
+      >
+        <RequestSuccessPane
+          mediaType="tv"
+          tmdbId={tmdbId}
+          title={data?.name}
+          year={data?.firstAirDate}
+          posterPath={data?.posterPath}
+          status={submittedRequest.status}
+          seasonCount={submittedRequest.seasons?.length}
+        />
+      </Modal>
+    );
+  }
 
   return data && !error && !data.externalIds.tvdbId && searchModal.show ? (
     <SearchByNameModal

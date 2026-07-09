@@ -87,6 +87,7 @@ interface Quota {
 
 export interface MainSettings {
   apiKey: string;
+  webhookSecret: string;
   applicationTitle: string;
   applicationUrl: string;
   csrfProtection: boolean;
@@ -285,6 +286,7 @@ class Settings {
       vapidPublic: '',
       main: {
         apiKey: '',
+        webhookSecret: '',
         applicationTitle: 'Overseerr',
         applicationUrl: '',
         csrfProtection: false,
@@ -445,6 +447,10 @@ class Settings {
   get main(): MainSettings {
     if (!this.data.main.apiKey) {
       this.data.main.apiKey = this.generateApiKey();
+      this.save();
+    }
+    if (!this.data.main.webhookSecret) {
+      this.data.main.webhookSecret = this.generateApiKey();
       this.save();
     }
     return this.data.main;
