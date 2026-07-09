@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Chanflix operations view</title>
+  <desc id="desc">A dark operations dashboard showing live streams, active downloads, recently finished media, and retry controls.</desc>
+  <rect width="1200" height="760" fill="#1d2021"/>
+  <rect x="0" y="0" width="220" height="760" fill="#282828"/>
+  <rect x="24" y="26" width="48" height="48" fill="#1d2021" stroke="#b8bb26" stroke-width="4"/>
+  <polygon points="40,40 40,60 56,50" fill="#b8bb26"/>
+  <rect x="60" y="45" width="7" height="10" fill="#fabd2f"/>
+  <text x="86" y="59" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#ebdbb2">chanflix</text>
+  <g font-family="Arial, sans-serif" font-size="15" font-weight="700">
+    <text x="48" y="142" fill="#a89984">Discover</text>
+    <text x="48" y="194" fill="#a89984">Movies</text>
+    <text x="48" y="246" fill="#a89984">Series</text>
+    <text x="48" y="298" fill="#a89984">Manage</text>
+    <text x="48" y="350" fill="#a89984">Library</text>
+    <rect x="18" y="376" width="184" height="42" fill="#1d2021"/>
+    <text x="48" y="402" fill="#ebdbb2">Operations</text>
+  </g>
+
+  <text x="244" y="78" font-family="Arial, sans-serif" font-size="38" font-weight="700" fill="#ebdbb2">Operations</text>
+  <text x="244" y="109" font-family="Arial, sans-serif" font-size="17" fill="#a89984">Streams, downloads, and the stuff that needs a nudge.</text>
+
+  <rect x="244" y="144" width="430" height="210" fill="#282828" stroke="#504945" stroke-width="2"/>
+  <text x="270" y="184" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#ebdbb2">Live Streams</text>
+  <rect x="270" y="210" width="378" height="52" fill="#1d2021" stroke="#3c3836"/>
+  <circle cx="296" cy="236" r="9" fill="#b8bb26"/>
+  <text x="318" y="233" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#ebdbb2">Family Room</text>
+  <text x="318" y="253" font-family="Arial, sans-serif" font-size="13" fill="#a89984">Direct play - 42 minutes left</text>
+  <rect x="270" y="278" width="378" height="52" fill="#1d2021" stroke="#3c3836"/>
+  <circle cx="296" cy="304" r="9" fill="#fabd2f"/>
+  <text x="318" y="301" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#ebdbb2">Bedroom TV</text>
+  <text x="318" y="321" font-family="Arial, sans-serif" font-size="13" fill="#a89984">Transcode - episode marathon mode</text>
+
+  <rect x="704" y="144" width="450" height="210" fill="#282828" stroke="#504945" stroke-width="2"/>
+  <text x="730" y="184" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#ebdbb2">Active Downloads</text>
+  <g font-family="Arial, sans-serif">
+    <rect x="730" y="210" width="398" height="36" fill="#1d2021"/>
+    <rect x="730" y="210" width="288" height="36" fill="#3c3836"/>
+    <text x="744" y="233" font-size="14" font-weight="700" fill="#ebdbb2">Starship Road - Season 1 - 10 eps</text>
+    <text x="1074" y="233" font-size="14" fill="#b8bb26">72%</text>
+    <rect x="730" y="260" width="398" height="36" fill="#1d2021"/>
+    <rect x="730" y="260" width="206" height="36" fill="#3c3836"/>
+    <text x="744" y="283" font-size="14" font-weight="700" fill="#ebdbb2">Static City</text>
+    <text x="1074" y="283" font-size="14" fill="#fabd2f">52%</text>
+    <rect x="730" y="310" width="92" height="28" fill="#1d2021" stroke="#fabd2f"/>
+    <text x="747" y="329" font-size="13" font-weight="700" fill="#ebdbb2">Retry Search</text>
+  </g>
+
+  <text x="244" y="414" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#ebdbb2">Recently Finished</text>
+  <g transform="translate(244 438)" font-family="Arial, sans-serif">
+    <rect width="274" height="178" fill="#282828" stroke="#504945" stroke-width="2"/>
+    <rect x="18" y="18" width="86" height="128" fill="#458588"/>
+    <text x="126" y="56" font-size="20" font-weight="700" fill="#ebdbb2">Quiet Signal</text>
+    <text x="126" y="86" font-size="15" fill="#a89984">Finished 8 min ago</text>
+    <rect x="126" y="114" width="96" height="28" fill="#1d2021" stroke="#b8bb26"/>
+    <text x="143" y="133" font-size="13" font-weight="700" fill="#ebdbb2">In Library</text>
+  </g>
+  <g transform="translate(544 438)" font-family="Arial, sans-serif">
+    <rect width="274" height="178" fill="#282828" stroke="#504945" stroke-width="2"/>
+    <rect x="18" y="18" width="86" height="128" fill="#b8bb26"/>
+    <text x="126" y="56" font-size="20" font-weight="700" fill="#ebdbb2">Long Weekend</text>
+    <text x="126" y="86" font-size="15" fill="#a89984">Finished 31 min ago</text>
+    <rect x="126" y="114" width="146" height="28" fill="#1d2021" stroke="#fabd2f"/>
+    <text x="143" y="133" font-size="13" font-weight="700" fill="#ebdbb2">Scan Pending</text>
+  </g>
+  <g transform="translate(844 438)" font-family="Arial, sans-serif">
+    <rect width="310" height="178" fill="#282828" stroke="#504945" stroke-width="2"/>
+    <text x="24" y="46" font-size="20" font-weight="700" fill="#ebdbb2">Pending Requests</text>
+    <text x="24" y="82" font-size="42" font-weight="700" fill="#b8bb26">3</text>
+    <text x="24" y="118" font-size="15" fill="#a89984">Ready to approve or decline.</text>
+    <rect x="24" y="136" width="104" height="28" fill="#1d2021" stroke="#b8bb26"/>
+    <text x="42" y="155" font-size="13" font-weight="700" fill="#ebdbb2">Review queue</text>
+  </g>
+</svg>

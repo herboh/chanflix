@@ -1,6 +1,6 @@
 {
-  "name": "Overseerr",
-  "short_name": "Overseerr",
+  "name": "Chanflix",
+  "short_name": "Chanflix",
   "start_url": "./",
   "icons": [
     {
@@ -28,8 +28,8 @@
       "purpose": "maskable"
     }
   ],
-  "theme_color": "#1f2937",
-  "background_color": "#1f2937",
+  "theme_color": "#1d2021",
+  "background_color": "#1d2021",
   "display": "standalone",
   "shortcuts": [
     {
@@ -44,8 +44,8 @@
       ]
     },
     {
-      "name": "Requests",
-      "url": "./requests",
+      "name": "Operations",
+      "url": "./operations",
       "icons": [
         {
           "src": "./clock-icon-192x192.png",
@@ -55,8 +55,8 @@
       ]
     },
     {
-      "name": "Profile",
-      "url": "./profile",
+      "name": "Library",
+      "url": "./library",
       "icons": [
         {
           "src": "./user-icon-192x192.png",

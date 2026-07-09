@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="456" height="96" viewBox="0 0 456 96" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" width="456" height="96" viewBox="0 0 456 96" fill="none" role="img" aria-labelledby="title">
+  <title id="title">Chanflix</title>
   <rect x="4" y="4" width="88" height="88" fill="#1d2021" stroke="#b8bb26" stroke-width="5"/>
   <polygon points="27,29 27,67 57,48" fill="#b8bb26"/>
   <rect x="64" y="39" width="13" height="18" fill="#fabd2f"/>
-  <text x="116" y="67" font-family="ui-monospace, 'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="58" font-weight="700" letter-spacing="-2" fill="#ebdbb2">chanflix</text>
+  <text x="116" y="67" font-family="ui-monospace, 'JetBrains Mono', 'DejaVu Sans Mono', monospace" font-size="56" font-weight="700" fill="#ebdbb2">chanflix</text>
 </svg>

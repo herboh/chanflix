@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Chanflix library view</title>
+  <desc id="desc">A dark library page showing media status filters and rows for available, downloading, and not downloaded items.</desc>
+  <rect width="1200" height="760" fill="#1d2021"/>
+  <rect x="0" y="0" width="220" height="760" fill="#282828"/>
+  <rect x="24" y="26" width="48" height="48" fill="#1d2021" stroke="#b8bb26" stroke-width="4"/>
+  <polygon points="40,40 40,60 56,50" fill="#b8bb26"/>
+  <rect x="60" y="45" width="7" height="10" fill="#fabd2f"/>
+  <text x="86" y="59" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#ebdbb2">chanflix</text>
+  <g font-family="Arial, sans-serif" font-size="15" font-weight="700">
+    <text x="48" y="142" fill="#a89984">Discover</text>
+    <text x="48" y="194" fill="#a89984">Movies</text>
+    <text x="48" y="246" fill="#a89984">Series</text>
+    <text x="48" y="298" fill="#a89984">Manage</text>
+    <rect x="18" y="324" width="184" height="42" fill="#1d2021"/>
+    <text x="48" y="350" fill="#ebdbb2">Library</text>
+    <text x="48" y="402" fill="#a89984">Operations</text>
+  </g>
+
+  <text x="244" y="78" font-family="Arial, sans-serif" font-size="38" font-weight="700" fill="#ebdbb2">Library</text>
+  <text x="244" y="109" font-family="Arial, sans-serif" font-size="17" fill="#a89984">Everything Plex knows about, plus what Radarr and Sonarr are still holding.</text>
+
+  <rect x="244" y="142" width="910" height="50" fill="#111314" stroke="#3c3836" stroke-width="2"/>
+  <text x="270" y="173" font-family="Arial, sans-serif" font-size="16" fill="#a89984">Filter by title, status, media type, or user tag</text>
+  <rect x="244" y="214" width="132" height="34" fill="#1d2021" stroke="#b8bb26"/>
+  <text x="274" y="236" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#ebdbb2">Available</text>
+  <rect x="388" y="214" width="150" height="34" fill="#1d2021" stroke="#fabd2f"/>
+  <text x="418" y="236" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#ebdbb2">Downloading</text>
+  <rect x="550" y="214" width="174" height="34" fill="#1d2021" stroke="#cc241d"/>
+  <text x="580" y="236" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#ebdbb2">Not Downloaded</text>
+
+  <rect x="244" y="280" width="910" height="392" fill="#282828" stroke="#504945" stroke-width="2"/>
+  <g font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#a89984">
+    <text x="270" y="316">TITLE</text>
+    <text x="604" y="316">TYPE</text>
+    <text x="734" y="316">STATUS</text>
+    <text x="930" y="316">ACTION</text>
+  </g>
+  <line x1="270" y1="336" x2="1128" y2="336" stroke="#3c3836"/>
+
+  <g font-family="Arial, sans-serif">
+    <rect x="270" y="358" width="50" height="70" fill="#458588"/>
+    <text x="344" y="385" font-size="18" font-weight="700" fill="#ebdbb2">Quiet Signal</text>
+    <text x="344" y="411" font-size="14" fill="#a89984">Added from Plex scan</text>
+    <text x="604" y="397" font-size="15" fill="#ebdbb2">Movie</text>
+    <rect x="734" y="376" width="94" height="28" fill="#1d2021" stroke="#b8bb26"/>
+    <text x="750" y="395" font-size="13" font-weight="700" fill="#ebdbb2">Available</text>
+    <text x="930" y="397" font-size="15" fill="#a89984">No action needed</text>
+  </g>
+  <line x1="270" y1="448" x2="1128" y2="448" stroke="#3c3836"/>
+
+  <g font-family="Arial, sans-serif">
+    <rect x="270" y="470" width="50" height="70" fill="#fabd2f"/>
+    <text x="344" y="497" font-size="18" font-weight="700" fill="#ebdbb2">Starship Road</text>
+    <text x="344" y="523" font-size="14" fill="#a89984">Season 1 - grouped queue item</text>
+    <text x="604" y="509" font-size="15" fill="#ebdbb2">Series</text>
+    <rect x="734" y="488" width="116" height="28" fill="#1d2021" stroke="#fabd2f"/>
+    <text x="750" y="507" font-size="13" font-weight="700" fill="#ebdbb2">Downloading</text>
+    <rect x="930" y="488" width="92" height="28" fill="#1d2021" stroke="#fabd2f"/>
+    <text x="948" y="507" font-size="13" font-weight="700" fill="#ebdbb2">Retry</text>
+  </g>
+  <line x1="270" y1="560" x2="1128" y2="560" stroke="#3c3836"/>
+
+  <g font-family="Arial, sans-serif">
+    <rect x="270" y="582" width="50" height="70" fill="#3c3836"/>
+    <text x="344" y="609" font-size="18" font-weight="700" fill="#ebdbb2">Midnight Archive</text>
+    <text x="344" y="635" font-size="14" fill="#a89984">Known to Radarr, missing in Plex</text>
+    <text x="604" y="621" font-size="15" fill="#ebdbb2">Movie</text>
+    <rect x="734" y="600" width="140" height="28" fill="#1d2021" stroke="#cc241d"/>
+    <text x="750" y="619" font-size="13" font-weight="700" fill="#ebdbb2">Not Downloaded</text>
+    <rect x="930" y="600" width="126" height="28" fill="#1d2021" stroke="#b8bb26"/>
+    <text x="948" y="619" font-size="13" font-weight="700" fill="#ebdbb2">Search Again</text>
+  </g>
+</svg>
