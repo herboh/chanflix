@@ -3406,6 +3406,34 @@ paths:
                 type: array
                 items:
                   type: object
+  /stats/now:
+    get:
+      summary: Get live server activity
+      description: Returns current Plex streams from Tautulli plus active and recently finished downloads. Download sections require request-management permissions.
+      tags:
+        - stats
+      responses:
+        '200':
+          description: Live activity returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  streams:
+                    type: array
+                    items:
+                      type: object
+                  downloads:
+                    type: array
+                    items:
+                      type: object
+                  recentlyFinished:
+                    type: array
+                    items:
+                      type: object
+                  updatedAt:
+                    type: string
   /stats/pending-requests:
     get:
       summary: Get pending request summaries

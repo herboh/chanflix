@@ -1,13 +1,18 @@
 import TautulliAPI, {
+  TautulliActivitySession,
   TautulliHistoryRecord,
   TautulliHomeStatItem,
 } from '@server/api/tautulli';
 import TheMovieDb from '@server/api/themoviedb';
 import { MediaRequestStatus, MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
+import Media from '@server/entity/Media';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import cacheManager from '@server/lib/cache';
-import downloadTracker from '@server/lib/downloadtracker';
+import downloadTracker, {
+  DownloadingItem,
+  RecentDownloadItem,
+} from '@server/lib/downloadtracker';
 import { Permission } from '@server/lib/permissions';
 import type { DVRSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
@@ -450,6 +455,302 @@ statsRoutes.get<
       return next({
         status: 500,
         message: 'Failed to fetch pending request summaries.',
+      });
+    }
+  }
+);
+
+export type NowStream = {
+  id: string;
+  user: string;
+  state: string;
+  mediaType: 'movie' | 'episode' | 'other';
+  title: string;
+  episodeTitle?: string;
+  progressPercent: number;
+  player: string;
+  year?: number;
+  ratingKey?: string;
+  grandparentRatingKey?: string;
+  tmdbId?: number;
+  posterPath?: string;
+};
+
+export type NowDownload = {
+  mediaType: MediaType;
+  externalId: number;
+  title: string;
+  status: string;
+  size: number;
+  sizeLeft: number;
+  timeLeft: string;
+  estimatedCompletionTime: string;
+  episode?: {
+    seasonNumber: number;
+    episodeNumber: number;
+    id: number;
+  };
+  tmdbId?: number;
+  posterPath?: string;
+};
+
+export type NowRecentDownload = NowDownload & {
+  completedAt: string;
+  outcome: 'completed' | 'cleared';
+};
+
+type NowResponse = {
+  streams: NowStream[];
+  downloads: NowDownload[];
+  recentlyFinished: NowRecentDownload[];
+  updatedAt: string;
+};
+
+export const RECENTLY_FINISHED_WINDOW_MS = 5 * 60 * 1000;
+
+export const mapActivitySession = (
+  session: TautulliActivitySession
+): NowStream => {
+  const isEpisode = session.media_type === 'episode';
+  const progress = Number(session.progress_percent);
+
+  return {
+    id: `stream-${session.session_key}`,
+    user: session.friendly_name || session.user,
+    state: session.state,
+    mediaType:
+      session.media_type === 'movie'
+        ? 'movie'
+        : isEpisode
+        ? 'episode'
+        : 'other',
+    title: isEpisode
+      ? session.grandparent_title || session.title
+      : session.title,
+    episodeTitle: isEpisode
+      ? [
+          session.parent_title,
+          session.media_index ? `Episode ${session.media_index}` : '',
+          session.title,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : undefined,
+    progressPercent: Number.isFinite(progress)
+      ? Math.max(0, Math.min(progress, 100))
+      : 0,
+    player: session.player || session.product,
+    year: Number(session.year) || undefined,
+    ratingKey: session.rating_key || undefined,
+    grandparentRatingKey: session.grandparent_rating_key || undefined,
+  };
+};
+
+export const isRecentlyFinished = (
+  item: { completedAt: Date | string },
+  now: Date = new Date(),
+  windowMs: number = RECENTLY_FINISHED_WINDOW_MS
+): boolean => {
+  const completedAt = new Date(item.completedAt).getTime();
+
+  return (
+    Number.isFinite(completedAt) &&
+    completedAt <= now.getTime() &&
+    now.getTime() - completedAt <= windowMs
+  );
+};
+
+const resolvePoster = async (
+  tmdb: TheMovieDb,
+  mediaType: MediaType,
+  tmdbId: number
+): Promise<string | undefined> => {
+  try {
+    if (mediaType === MediaType.MOVIE) {
+      return (await tmdb.getMovie({ movieId: tmdbId })).poster_path;
+    }
+
+    return (await tmdb.getTvShow({ tvId: tmdbId })).poster_path;
+  } catch (e) {
+    logger.debug('Failed to resolve poster for now panel', {
+      label: 'API',
+      mediaType,
+      tmdbId,
+      errorMessage: e instanceof Error ? e.message : 'Unknown error',
+    });
+
+    return undefined;
+  }
+};
+
+const enrichNowDownload = async (
+  tmdb: TheMovieDb,
+  item: DownloadingItem
+): Promise<NowDownload> => {
+  const base: NowDownload = {
+    mediaType: item.mediaType,
+    externalId: item.externalId,
+    title: item.title,
+    status: item.status,
+    size: item.size,
+    sizeLeft: item.sizeLeft,
+    timeLeft: item.timeLeft,
+    estimatedCompletionTime: new Date(
+      item.estimatedCompletionTime
+    ).toISOString(),
+    episode: item.episode
+      ? {
+          seasonNumber: item.episode.seasonNumber,
+          episodeNumber: item.episode.episodeNumber,
+          id: item.episode.id,
+        }
+      : undefined,
+  };
+
+  try {
+    const media = await getRepository(Media).findOne({
+      where: [
+        { mediaType: item.mediaType, externalServiceId: item.externalId },
+        { mediaType: item.mediaType, externalServiceId4k: item.externalId },
+      ],
+    });
+
+    if (media?.tmdbId) {
+      return {
+        ...base,
+        tmdbId: media.tmdbId,
+        posterPath: await resolvePoster(tmdb, item.mediaType, media.tmdbId),
+      };
+    }
+  } catch (e) {
+    logger.debug('Failed to enrich now download with media metadata', {
+      label: 'API',
+      externalId: item.externalId,
+      errorMessage: e instanceof Error ? e.message : 'Unknown error',
+    });
+  }
+
+  return base;
+};
+
+const enrichNowStream = async (
+  tmdb: TheMovieDb,
+  stream: NowStream
+): Promise<NowStream> => {
+  const ratingKeys = [stream.grandparentRatingKey, stream.ratingKey].filter(
+    (key): key is string => Boolean(key)
+  );
+
+  if (ratingKeys.length === 0) {
+    return stream;
+  }
+
+  try {
+    const media = await getRepository(Media)
+      .createQueryBuilder('media')
+      .where('media.ratingKey IN (:...keys)', { keys: ratingKeys })
+      .orWhere('media.ratingKey4k IN (:...keys)', { keys: ratingKeys })
+      .getOne();
+
+    if (media?.tmdbId) {
+      return {
+        ...stream,
+        tmdbId: media.tmdbId,
+        posterPath: await resolvePoster(tmdb, media.mediaType, media.tmdbId),
+      };
+    }
+  } catch (e) {
+    logger.debug('Failed to enrich now stream with media metadata', {
+      label: 'API',
+      ratingKeys,
+      errorMessage: e instanceof Error ? e.message : 'Unknown error',
+    });
+  }
+
+  return stream;
+};
+
+// GET /api/v1/stats/now - Live streams, active downloads, and just-finished downloads
+statsRoutes.get<Record<string, never>, NowResponse | { error: string }>(
+  '/now',
+  isAuthenticated(),
+  async (req, res, next) => {
+    const settings = getSettings();
+    const canViewDownloads = req.user?.hasPermission(
+      Permission.MANAGE_REQUESTS
+    );
+    const cache = cacheManager.getCache('stats').data;
+    const cacheKey = JSON.stringify({
+      route: 'now',
+      downloads: canViewDownloads,
+    });
+    const cachedResponse = cache.get<NowResponse>(cacheKey);
+
+    if (cachedResponse) {
+      return res.status(200).json(cachedResponse);
+    }
+
+    try {
+      const tmdb = new TheMovieDb();
+
+      const sessions =
+        settings.tautulli.hostname && settings.tautulli.apiKey
+          ? await new TautulliAPI(settings.tautulli)
+              .getActivity()
+              .catch(() => [] as TautulliActivitySession[])
+          : [];
+
+      const streams = await Promise.all(
+        sessions
+          .filter((session) =>
+            ['movie', 'episode'].includes(session.media_type)
+          )
+          .map((session) => enrichNowStream(tmdb, mapActivitySession(session)))
+      );
+
+      let downloads: NowDownload[] = [];
+      let recentlyFinished: NowRecentDownload[] = [];
+
+      if (canViewDownloads) {
+        const active = downloadTracker.getAllDownloads();
+        const recent = await downloadTracker.getRecentDownloads();
+        const now = new Date();
+
+        downloads = await Promise.all(
+          [...active.movies, ...active.tv].map((item) =>
+            enrichNowDownload(tmdb, item)
+          )
+        );
+
+        recentlyFinished = await Promise.all(
+          recent
+            .filter((item: RecentDownloadItem) => isRecentlyFinished(item, now))
+            .map(async (item) => ({
+              ...(await enrichNowDownload(tmdb, item)),
+              completedAt: new Date(item.completedAt).toISOString(),
+              outcome: item.outcome,
+            }))
+        );
+      }
+
+      const response: NowResponse = {
+        streams,
+        downloads,
+        recentlyFinished,
+        updatedAt: new Date().toISOString(),
+      };
+
+      cache.set(cacheKey, response, 20);
+
+      return res.status(200).json(response);
+    } catch (e) {
+      logger.error('Failed to fetch now panel data', {
+        label: 'API',
+        errorMessage: e instanceof Error ? e.message : 'Unknown error',
+      });
+      return next({
+        status: 500,
+        message: 'Failed to fetch now panel data.',
       });
     }
   }

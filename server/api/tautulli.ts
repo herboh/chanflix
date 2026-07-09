@@ -140,6 +140,45 @@ interface TautulliInfoResponse {
   };
 }
 
+export interface TautulliActivitySession {
+  session_key: string;
+  user: string;
+  friendly_name: string;
+  state: string;
+  media_type: string;
+  title: string;
+  parent_title: string;
+  grandparent_title: string;
+  full_title: string;
+  media_index: string;
+  parent_media_index: string;
+  progress_percent: string;
+  view_offset: string;
+  duration: string;
+  player: string;
+  product: string;
+  platform: string;
+  quality_profile: string;
+  transcode_decision: string;
+  rating_key: string;
+  parent_rating_key: string;
+  grandparent_rating_key: string;
+  thumb: string;
+  grandparent_thumb: string;
+  year: string;
+}
+
+interface TautulliActivityResponse {
+  response: {
+    result: string;
+    message?: string;
+    data: {
+      stream_count: string;
+      sessions: TautulliActivitySession[];
+    };
+  };
+}
+
 class TautulliAPI {
   private axios: AxiosInstance;
 
@@ -359,6 +398,25 @@ class TautulliAPI {
       throw new Error(
         `[Tautulli] Failed to fetch popular content: ${e.message}`
       );
+    }
+  }
+
+  public async getActivity(): Promise<TautulliActivitySession[]> {
+    try {
+      const response = await this.axios.get<TautulliActivityResponse>(
+        '/api/v2',
+        {
+          params: { cmd: 'get_activity' },
+        }
+      );
+
+      return response.data.response.data.sessions ?? [];
+    } catch (e) {
+      logger.error('Something went wrong fetching activity from Tautulli', {
+        label: 'Tautulli API',
+        errorMessage: e.message,
+      });
+      throw new Error(`[Tautulli] Failed to fetch activity: ${e.message}`);
     }
   }
 
