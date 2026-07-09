@@ -14,8 +14,7 @@ import RecentRequestsSlider from "@app/components/Discover/RecentRequestsSlider"
 import StudioSlider from "@app/components/Discover/StudioSlider";
 import TvGenreSlider from "@app/components/Discover/TvGenreSlider";
 import ActivityWidget from "@app/components/Discover/Widgets/ActivityWidget";
-import LatestPostWidget from "@app/components/Discover/Widgets/LatestPostWidget";
-import LatestReviewWidget from "@app/components/Discover/Widgets/LatestReviewWidget";
+import NowWidget from "@app/components/Discover/Widgets/NowWidget";
 import PopularWidget from "@app/components/Discover/Widgets/PopularWidget";
 import MediaSlider from "@app/components/MediaSlider";
 import { encodeURIExtraParams } from "@app/hooks/useDiscover";
@@ -135,11 +134,12 @@ const Discover = () => {
         </p>
       </div>
 
-      <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <PopularWidget />
-        <ActivityWidget />
-        <LatestReviewWidget />
-        <LatestPostWidget />
+      <div className="mb-8 space-y-4">
+        <NowWidget />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <PopularWidget />
+          <ActivityWidget />
+        </div>
       </div>
       {hasPermission(Permission.ADMIN) && (
         <>
