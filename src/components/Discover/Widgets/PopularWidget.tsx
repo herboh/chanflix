@@ -45,11 +45,11 @@ const PopularWidget = () => {
           No watch data available
         </div>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-0.5">
           {data.map((item, index) => (
             <li key={item.rating_key}>
-              <div className="flex items-center space-x-3 rounded-md p-2 transition hover:bg-gray-700/50">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-700 text-xs font-medium text-gray-300">
+              <div className="flex items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-gray-700/50">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-700 text-[10px] font-medium text-gray-300">
                   {index + 1}
                 </span>
                 {item.media_type === 'movie' ? (
@@ -57,15 +57,13 @@ const PopularWidget = () => {
                 ) : (
                   <TvIcon className="h-4 w-4 shrink-0 text-gray-400" />
                 )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-gray-200">
-                    {item.title}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {item.total_plays} plays
-                    {item.users_watched > 1 && ` · ${item.users_watched} viewers`}
-                  </p>
-                </div>
+                <p className="min-w-0 flex-1 truncate text-xs font-medium text-gray-200">
+                  {item.title}
+                </p>
+                <span className="shrink-0 text-xs tabular-nums text-gray-500">
+                  {item.total_plays} plays
+                  {item.users_watched > 1 && ` · ${item.users_watched} viewers`}
+                </span>
               </div>
             </li>
           ))}

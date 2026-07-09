@@ -3,7 +3,7 @@ import NodeCache from 'node-cache';
 import type {} from '@server/types/express';
 import type {} from '@server/types/express-session';
 import ExternalAPI from '@server/api/externalapi';
-import { MediaType } from '@server/constants/media';
+import { MediaStatus, MediaType } from '@server/constants/media';
 import { MediaRequestStatus } from '@server/constants/media';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import type { DownloadingItem } from '@server/lib/downloadtracker';
@@ -17,7 +17,12 @@ import {
   parseTmdbMetadataPayload,
 } from '@server/lib/tmdbMetadataCache';
 import { dedupeTmdbPrewarmCandidates } from '@server/lib/tmdbMetadataPrewarm';
-import { buildPendingRequestSummary } from '@server/routes/stats';
+import { classifyLocalMediaStatus } from '@server/lib/libraryStatus';
+import {
+  buildPendingRequestSummary,
+  isRecentlyFinished,
+  mapActivitySession,
+} from '@server/routes/stats';
 import {
   defaultQualityTriggers,
   evaluateQualityTriggers,
@@ -627,6 +632,173 @@ const tests: TestCase[] = [
       assert.equal(isValidWebhookSecret('anything', ''), false);
       assert.equal(isValidWebhookSecret('anything', undefined), false);
       assert.equal(isValidWebhookSecret('', ''), false);
+    },
+  },
+  {
+    name: 'Now panel maps Tautulli sessions and clamps progress',
+    run() {
+      const episode = mapActivitySession({
+        session_key: '7',
+        user: 'nick',
+        friendly_name: 'Nick',
+        state: 'playing',
+        media_type: 'episode',
+        title: 'The Inner Light',
+        parent_title: 'Season 5',
+        grandparent_title: 'Star Trek: The Next Generation',
+        full_title: 'Star Trek: TNG - The Inner Light',
+        media_index: '25',
+        parent_media_index: '5',
+        progress_percent: '250',
+        view_offset: '0',
+        duration: '0',
+        player: 'Living Room TV',
+        product: 'Plex for Roku',
+        platform: 'Roku',
+        quality_profile: 'Original',
+        transcode_decision: 'direct play',
+        rating_key: '999',
+        parent_rating_key: '998',
+        grandparent_rating_key: '900',
+        thumb: '',
+        grandparent_thumb: '',
+        year: '1992',
+      });
+
+      assert.equal(episode.mediaType, 'episode');
+      assert.equal(episode.title, 'Star Trek: The Next Generation');
+      assert.equal(episode.user, 'Nick');
+      assert.equal(episode.progressPercent, 100);
+      assert.equal(episode.grandparentRatingKey, '900');
+      assert.ok(episode.episodeTitle?.includes('The Inner Light'));
+
+      const movie = mapActivitySession({
+        session_key: '8',
+        user: 'herbie',
+        friendly_name: '',
+        state: 'paused',
+        media_type: 'movie',
+        title: 'Heat',
+        parent_title: '',
+        grandparent_title: '',
+        full_title: 'Heat',
+        media_index: '',
+        parent_media_index: '',
+        progress_percent: 'not-a-number',
+        view_offset: '0',
+        duration: '0',
+        player: '',
+        product: 'Plex Web',
+        platform: 'Chrome',
+        quality_profile: 'Original',
+        transcode_decision: 'transcode',
+        rating_key: '123',
+        parent_rating_key: '',
+        grandparent_rating_key: '',
+        thumb: '',
+        grandparent_thumb: '',
+        year: '1995',
+      });
+
+      assert.equal(movie.mediaType, 'movie');
+      assert.equal(movie.user, 'herbie');
+      assert.equal(movie.progressPercent, 0);
+      assert.equal(movie.player, 'Plex Web');
+      assert.equal(movie.episodeTitle, undefined);
+    },
+  },
+  {
+    name: 'Now panel recently-finished window only keeps fresh completions',
+    run() {
+      const now = new Date('2026-07-08T12:00:00Z');
+
+      assert.equal(
+        isRecentlyFinished(
+          { completedAt: new Date('2026-07-08T11:56:30Z') },
+          now
+        ),
+        true
+      );
+      assert.equal(
+        isRecentlyFinished(
+          { completedAt: new Date('2026-07-08T11:54:00Z') },
+          now
+        ),
+        false
+      );
+      assert.equal(
+        isRecentlyFinished(
+          { completedAt: new Date('2026-07-08T12:01:00Z') },
+          now
+        ),
+        false
+      );
+      assert.equal(
+        isRecentlyFinished({ completedAt: 'not a date' }, now),
+        false
+      );
+    },
+  },
+  {
+    name: 'Library classification separates downloading from stalled media',
+    run() {
+      const activeIds = new Set([42]);
+
+      assert.equal(
+        classifyLocalMediaStatus(
+          {
+            status: MediaStatus.PROCESSING,
+            externalServiceId: 42,
+            externalServiceId4k: null,
+          },
+          activeIds
+        ),
+        'processing'
+      );
+      assert.equal(
+        classifyLocalMediaStatus(
+          {
+            status: MediaStatus.PROCESSING,
+            externalServiceId: 43,
+            externalServiceId4k: null,
+          },
+          activeIds
+        ),
+        'stalled'
+      );
+      assert.equal(
+        classifyLocalMediaStatus(
+          {
+            status: MediaStatus.PROCESSING,
+            externalServiceId: null,
+            externalServiceId4k: null,
+          },
+          activeIds
+        ),
+        'stalled'
+      );
+      assert.equal(
+        classifyLocalMediaStatus(
+          {
+            status: MediaStatus.PENDING,
+            externalServiceId: null,
+            externalServiceId4k: null,
+          },
+          activeIds
+        ),
+        'pending'
+      );
+      assert.equal(
+        classifyLocalMediaStatus(
+          {
+            status: MediaStatus.PARTIALLY_AVAILABLE,
+            externalServiceId: null,
+            externalServiceId4k: null,
+          },
+          activeIds
+        ),
+        'partial'
+      );
     },
   },
 ];

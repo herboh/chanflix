@@ -2,6 +2,8 @@ import CachedImage from '@app/components/Common/CachedImage';
 import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
+import RetrySearchButton from '@app/components/Common/RetrySearchButton';
+import { Permission, useUser } from '@app/hooks/useUser';
 import {
   FilmIcon,
   TvIcon,
@@ -24,7 +26,13 @@ interface LibraryItem {
   title: string;
   year?: number;
   mediaType: 'movie' | 'tv';
-  status: 'available' | 'pending' | 'processing' | 'partial' | 'unknown';
+  status:
+    | 'available'
+    | 'pending'
+    | 'processing'
+    | 'stalled'
+    | 'partial'
+    | 'unknown';
   addedAt?: number;
   posterPath?: string;
 }
@@ -59,7 +67,14 @@ const getStatusBadge = (status: LibraryItem['status']) => {
       return (
         <span className="flex items-center rounded-full bg-blue-900/50 px-2 py-1 text-xs text-blue-400">
           <ArrowPathIcon className="mr-1 h-3 w-3 animate-spin" />
-          Processing
+          Downloading
+        </span>
+      );
+    case 'stalled':
+      return (
+        <span className="flex items-center rounded-full bg-red-900/50 px-2 py-1 text-xs text-red-400">
+          <ExclamationTriangleIcon className="mr-1 h-3 w-3" />
+          Not Downloaded
         </span>
       );
     case 'partial':
@@ -78,10 +93,22 @@ const getStatusBadge = (status: LibraryItem['status']) => {
   }
 };
 
-const LibraryCard = ({ item }: { item: LibraryItem }) => {
+const LibraryCard = ({
+  item,
+  canRetry,
+}: {
+  item: LibraryItem;
+  canRetry: boolean;
+}) => {
   const href = item.tmdbId
     ? `/${item.mediaType}/${item.tmdbId}`
     : '#';
+  const showRetry =
+    canRetry &&
+    Boolean(item.tmdbId) &&
+    (item.status === 'stalled' ||
+      item.status === 'processing' ||
+      item.status === 'pending');
 
   return (
     <Link href={href}>
@@ -117,9 +144,17 @@ const LibraryCard = ({ item }: { item: LibraryItem }) => {
           <h3 className="truncate font-medium text-gray-100 group-hover:text-indigo-400">
             {item.title}
           </h3>
-          {item.year && (
-            <p className="text-sm text-gray-500">{item.year}</p>
-          )}
+          <div className="mt-1 flex min-h-[1.5rem] items-center justify-between">
+            <p className="text-sm text-gray-500">{item.year ?? ''}</p>
+            {showRetry && item.tmdbId && (
+              <RetrySearchButton
+                mediaType={item.mediaType}
+                tmdbId={item.tmdbId}
+                title={item.title}
+                compact
+              />
+            )}
+          </div>
         </div>
       </a>
     </Link>
@@ -127,6 +162,8 @@ const LibraryCard = ({ item }: { item: LibraryItem }) => {
 };
 
 const Library = () => {
+  const { hasPermission } = useUser();
+  const canRetry = hasPermission(Permission.MANAGE_REQUESTS);
   const [typeFilter, setTypeFilter] = useState<'all' | 'movie' | 'tv'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'pending'>('all');
   const [page, setPage] = useState(1);
@@ -255,6 +292,7 @@ const Library = () => {
               <LibraryCard
                 key={`${item.ratingKey || item.tmdbId || index}-${item.mediaType}`}
                 item={item}
+                canRetry={canRetry}
               />
             ))}
           </div>

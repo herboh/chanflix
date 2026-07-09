@@ -120,22 +120,20 @@ const getPrimaryText = (item: ActivityItem) => {
 };
 
 const getSecondaryText = (item: ActivityItem) => {
-  const timeAgo = formatTimeAgo(item.occurredAt);
-
   if (item.type === 'watch' && item.episodeTitle) {
-    return `${timeAgo} · ${item.episodeTitle}`;
+    return item.episodeTitle;
   }
 
   if (item.type === 'download') {
-    return `${timeAgo} · ${item.status}`;
+    return item.status;
   }
 
-  return timeAgo;
+  return undefined;
 };
 
 const ActivityWidget = () => {
   const { data, error } = useSWR<ActivityItem[]>(
-    '/api/v1/stats/recent?take=6',
+    '/api/v1/stats/recent?take=15',
     { refreshInterval: 120000 }
   );
 
@@ -163,22 +161,31 @@ const ActivityWidget = () => {
           No recent activity
         </div>
       ) : (
-        <ul className="space-y-2">
-          {data.map((item) => (
-            <li key={item.id}>
-              <div className="flex items-start space-x-3 rounded-md p-2 transition hover:bg-gray-700/50">
-                {getStatusIcon(item)}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-gray-200">
-                    {getPrimaryText(item)}
-                  </p>
-                  <p className="truncate text-xs text-gray-500">
-                    {getSecondaryText(item)}
-                  </p>
+        <ul className="max-h-72 space-y-0.5 overflow-y-auto pr-1">
+          {data.map((item) => {
+            const secondary = getSecondaryText(item);
+
+            return (
+              <li key={item.id}>
+                <div className="flex items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-gray-700/50">
+                  {getStatusIcon(item)}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs text-gray-200">
+                      {getPrimaryText(item)}
+                    </p>
+                    {secondary && (
+                      <p className="truncate text-xs text-gray-500">
+                        {secondary}
+                      </p>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-xs tabular-nums text-gray-500">
+                    {formatTimeAgo(item.occurredAt)}
+                  </span>
                 </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

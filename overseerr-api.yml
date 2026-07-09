@@ -3386,6 +3386,39 @@ paths:
             application/json:
               schema:
                 type: object
+  /downloads/retry:
+    post:
+      summary: Trigger a Radarr/Sonarr search
+      description: Triggers a search command on the mapped Radarr/Sonarr server(s) for known media. Requires request-management permissions.
+      tags:
+        - downloads
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mediaType:
+                  type: string
+                  enum: [movie, tv]
+                tmdbId:
+                  type: number
+              required:
+                - mediaType
+                - tmdbId
+      responses:
+        '200':
+          description: Search triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  triggered:
+                    type: array
+                    items:
+                      type: string
   /stats/popular:
     get:
       summary: Get popular Plex content
@@ -3450,6 +3483,34 @@ paths:
                 type: array
                 items:
                   type: object
+  /stats/now:
+    get:
+      summary: Get live server activity
+      description: Returns current Plex streams from Tautulli plus active and recently finished downloads. Download sections require request-management permissions.
+      tags:
+        - stats
+      responses:
+        '200':
+          description: Live activity returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  streams:
+                    type: array
+                    items:
+                      type: object
+                  downloads:
+                    type: array
+                    items:
+                      type: object
+                  recentlyFinished:
+                    type: array
+                    items:
+                      type: object
+                  updatedAt:
+                    type: string
   /stats/pending-requests:
     get:
       summary: Get pending request summaries

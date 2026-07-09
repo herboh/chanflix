@@ -1,7 +1,9 @@
 import Badge from '@app/components/Common/Badge';
+import CachedImage from '@app/components/Common/CachedImage';
 import Header from '@app/components/Common/Header';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import PageTitle from '@app/components/Common/PageTitle';
+import RetrySearchButton from '@app/components/Common/RetrySearchButton';
 import { Permission, useUser } from '@app/hooks/useUser';
 import Error from '@app/pages/_error';
 import { POLLING_INTERVALS } from '@app/utils/pollingIntervals';
@@ -10,39 +12,66 @@ import {
   ArrowRightCircleIcon,
   CheckCircleIcon,
   ClockIcon,
-  ExclamationTriangleIcon,
   FilmIcon,
-  ListBulletIcon,
+  PlayIcon,
   TvIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import useSWR from 'swr';
 
-interface DownloadingItem {
+interface NowStream {
+  id: string;
+  user: string;
+  state: string;
+  mediaType: 'movie' | 'episode' | 'other';
+  title: string;
+  episodeTitle?: string;
+  progressPercent: number;
+  player: string;
+  tmdbId?: number;
+  posterPath?: string;
+}
+
+interface NowDownload {
   mediaType: 'movie' | 'tv';
   externalId: number;
+  title: string;
+  status: string;
   size: number;
   sizeLeft: number;
-  status: string;
   timeLeft: string;
-  title: string;
+  estimatedCompletionTime: string;
   episode?: {
     seasonNumber: number;
     episodeNumber: number;
     id: number;
   };
+  tmdbId?: number;
+  posterPath?: string;
 }
 
-interface DownloadsResponse {
-  movies: DownloadingItem[];
-  tv: DownloadingItem[];
-  recent: RecentDownloadItem[];
+interface NowRecentDownload extends NowDownload {
+  completedAt: string;
+  outcome: 'completed' | 'cleared';
 }
 
-interface RecentDownloadItem extends DownloadingItem {
+interface NowResponse {
+  streams: NowStream[];
+  downloads: NowDownload[];
+  recentlyFinished: NowRecentDownload[];
+  updatedAt: string;
+}
+
+interface RecentDownloadItem extends NowDownload {
   completedAt: string;
   serverId: number;
   outcome: 'completed' | 'cleared';
+}
+
+interface DownloadsResponse {
+  movies: NowDownload[];
+  tv: NowDownload[];
+  recent: RecentDownloadItem[];
 }
 
 interface ActivityItem {
@@ -97,6 +126,14 @@ const formatTime = (dateString?: string): string => {
   return `${Math.floor(seconds / 86400)}d ago`;
 };
 
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
 const getRequestBadge = (
   status: PendingRequestSummary['status']
 ): 'default' | 'success' | 'warning' | 'danger' => {
@@ -131,19 +168,89 @@ const formatRequestRouting = (request: PendingRequestSummary): string => {
   return details.join(' · ');
 };
 
-const DownloadRow = ({ item }: { item: DownloadingItem }) => {
+const MediaThumb = ({
+  posterPath,
+  mediaType,
+  title,
+}: {
+  posterPath?: string;
+  mediaType: 'movie' | 'tv' | 'episode' | 'other';
+  title: string;
+}) => {
+  if (posterPath) {
+    return (
+      <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded bg-gray-900">
+        <CachedImage
+          src={`https://image.tmdb.org/t/p/w154${posterPath}`}
+          alt={title}
+          layout="fill"
+          objectFit="cover"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded bg-gray-900">
+      {mediaType === 'movie' ? (
+        <FilmIcon className="h-5 w-5 text-gray-600" />
+      ) : (
+        <TvIcon className="h-5 w-5 text-gray-600" />
+      )}
+    </div>
+  );
+};
+
+const StreamRow = ({ stream }: { stream: NowStream }) => (
+  <div className="rounded-md border border-gray-700 bg-gray-800 px-4 py-3">
+    <div className="flex items-center gap-3">
+      <MediaThumb
+        posterPath={stream.posterPath}
+        mediaType={stream.mediaType}
+        title={stream.title}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-gray-100">
+          {stream.title}
+        </div>
+        <div className="truncate text-xs text-gray-400">
+          {stream.user} · {stream.player}
+          {stream.episodeTitle ? ` · ${stream.episodeTitle}` : ''}
+        </div>
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-700">
+            <div
+              className="h-full rounded-full bg-green-500"
+              style={{ width: `${stream.progressPercent}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-xs tabular-nums text-gray-500">
+            {Math.round(stream.progressPercent)}%
+          </span>
+        </div>
+      </div>
+      <PlayIcon
+        className={`h-5 w-5 shrink-0 ${
+          stream.state === 'paused' ? 'text-yellow-400' : 'text-green-400'
+        }`}
+      />
+    </div>
+  </div>
+);
+
+const DownloadRow = ({ item }: { item: NowDownload }) => {
   const progress =
     item.size > 0 ? ((item.size - item.sizeLeft) / item.size) * 100 : 0;
 
   return (
     <div className="rounded-md border border-gray-700 bg-gray-800 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          {item.mediaType === 'movie' ? (
-            <FilmIcon className="mt-0.5 h-5 w-5 shrink-0 text-indigo-400" />
-          ) : (
-            <TvIcon className="mt-0.5 h-5 w-5 shrink-0 text-purple-400" />
-          )}
+        <div className="flex min-w-0 items-center gap-3">
+          <MediaThumb
+            posterPath={item.posterPath}
+            mediaType={item.mediaType}
+            title={item.title}
+          />
           <div className="min-w-0">
             <div className="truncate text-sm font-medium text-gray-100">
               {item.title}
@@ -154,10 +261,24 @@ const DownloadRow = ({ item }: { item: DownloadingItem }) => {
                 : item.mediaType === 'movie'
                 ? 'Movie'
                 : 'Series'}
+              {item.size > 0 &&
+                ` · ${formatBytes(item.size - item.sizeLeft)} of ${formatBytes(
+                  item.size
+                )}`}
             </div>
           </div>
         </div>
-        <Badge badgeType="dark">{item.status}</Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          {item.tmdbId && (
+            <RetrySearchButton
+              mediaType={item.mediaType}
+              tmdbId={item.tmdbId}
+              title={item.title}
+              compact
+            />
+          )}
+          <Badge badgeType="dark">{item.status}</Badge>
+        </div>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-700">
         <div
@@ -172,16 +293,20 @@ const DownloadRow = ({ item }: { item: DownloadingItem }) => {
   );
 };
 
-const RecentDownloadRow = ({ item }: { item: RecentDownloadItem }) => {
+const RecentDownloadRow = ({
+  item,
+}: {
+  item: RecentDownloadItem | NowRecentDownload;
+}) => {
   return (
     <div className="rounded-md border border-gray-700 bg-gray-800 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          {item.mediaType === 'movie' ? (
-            <FilmIcon className="mt-0.5 h-5 w-5 shrink-0 text-indigo-400" />
-          ) : (
-            <TvIcon className="mt-0.5 h-5 w-5 shrink-0 text-purple-400" />
-          )}
+        <div className="flex min-w-0 items-center gap-3">
+          <MediaThumb
+            posterPath={item.posterPath}
+            mediaType={item.mediaType}
+            title={item.title}
+          />
           <div className="min-w-0">
             <div className="truncate text-sm font-medium text-gray-100">
               {item.title}
@@ -206,14 +331,16 @@ const Operations = () => {
   const { hasPermission, loading } = useUser();
   const canManageRequests = hasPermission(Permission.MANAGE_REQUESTS);
 
-  const { data: downloads, error: downloadsError } = useSWR<DownloadsResponse>(
+  const { data: now, error: nowError } = useSWR<NowResponse>(
+    canManageRequests ? '/api/v1/stats/now' : null,
+    { refreshInterval: POLLING_INTERVALS.nowPanel }
+  );
+  const { data: downloads } = useSWR<DownloadsResponse>(
     canManageRequests ? '/api/v1/downloads' : null,
     { refreshInterval: POLLING_INTERVALS.activeDownloads }
   );
   const { data: pendingRequests } = useSWR<PendingRequestsResponse>(
-    canManageRequests
-      ? '/api/v1/stats/pending-requests?take=6&skip=0'
-      : null
+    canManageRequests ? '/api/v1/stats/pending-requests?take=6&skip=0' : null
   );
   const { data: activity } = useSWR<ActivityItem[]>(
     canManageRequests ? '/api/v1/stats/recent?take=8' : null,
@@ -228,10 +355,8 @@ const Operations = () => {
     return <Error statusCode={403} />;
   }
 
-  const activeDownloads = [
-    ...(downloads?.movies ?? []),
-    ...(downloads?.tv ?? []),
-  ];
+  const activeDownloads = now?.downloads ?? [];
+  const streams = now?.streams ?? [];
   const downloadCount = activeDownloads.length;
   const pendingCount = pendingRequests?.pageInfo.results ?? 0;
 
@@ -239,12 +364,23 @@ const Operations = () => {
     <>
       <PageTitle title="Operations" />
       <div className="mb-6">
-        <Header subtext="Requests, downloads, and recent server activity">
+        <Header subtext="Streams, downloads, requests, and recent server activity">
           Operations
         </Header>
       </div>
 
       <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <div className="rounded-md border border-gray-700 bg-gray-800 p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-400">
+              Active Streams
+            </span>
+            <PlayIcon className="h-5 w-5 text-green-400" />
+          </div>
+          <div className="mt-2 text-3xl font-semibold text-gray-100">
+            {streams.length}
+          </div>
+        </div>
         <div className="rounded-md border border-gray-700 bg-gray-800 p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-gray-400">
@@ -267,18 +403,20 @@ const Operations = () => {
             {pendingCount}
           </div>
         </div>
-        <div className="rounded-md border border-gray-700 bg-gray-800 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-400">
-              Recent Activity
-            </span>
-            <ListBulletIcon className="h-5 w-5 text-green-400" />
-          </div>
-          <div className="mt-2 text-3xl font-semibold text-gray-100">
-            {activity?.length ?? 0}
-          </div>
-        </div>
       </div>
+
+      {streams.length > 0 && (
+        <section className="mb-6">
+          <h2 className="mb-3 text-xl font-semibold text-gray-100">
+            Watching Now
+          </h2>
+          <div className="space-y-3">
+            {streams.map((stream) => (
+              <StreamRow key={`ops-stream-${stream.id}`} stream={stream} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section>
@@ -286,18 +424,12 @@ const Operations = () => {
             <h2 className="text-xl font-semibold text-gray-100">
               Active Downloads
             </h2>
-            <Link href="/downloads">
-              <a className="inline-flex items-center text-sm text-indigo-400 hover:text-indigo-300">
-                View all
-                <ArrowRightCircleIcon className="ml-1 h-4 w-4" />
-              </a>
-            </Link>
           </div>
-          {downloadsError ? (
+          {nowError ? (
             <div className="rounded-md border border-red-700 bg-gray-800 p-4 text-sm text-red-300">
               Failed to load downloads
             </div>
-          ) : !downloads ? (
+          ) : !now ? (
             <LoadingSpinner />
           ) : activeDownloads.length === 0 ? (
             <div className="rounded-md border border-gray-700 bg-gray-800 p-6 text-sm text-gray-400">
@@ -305,7 +437,7 @@ const Operations = () => {
             </div>
           ) : (
             <div className="space-y-3">
-              {activeDownloads.slice(0, 6).map((item, index) => (
+              {activeDownloads.map((item, index) => (
                 <DownloadRow
                   key={`ops-download-${item.mediaType}-${item.externalId}-${index}`}
                   item={item}
@@ -320,7 +452,7 @@ const Operations = () => {
                 Recent Completions
               </h3>
               <div className="space-y-3">
-                {downloads.recent.slice(0, 5).map((item, index) => (
+                {downloads.recent.slice(0, 8).map((item, index) => (
                   <RecentDownloadRow
                     key={`ops-recent-download-${item.mediaType}-${item.externalId}-${index}`}
                     item={item}
@@ -375,9 +507,17 @@ const Operations = () => {
                           </div>
                         )}
                       </div>
-                      <Badge badgeType={getRequestBadge(request.status)}>
-                        {formatRequestStatus(request.status)}
-                      </Badge>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <RetrySearchButton
+                          mediaType={request.mediaType}
+                          tmdbId={request.tmdbId}
+                          title={request.mediaTitle}
+                          compact
+                        />
+                        <Badge badgeType={getRequestBadge(request.status)}>
+                          {formatRequestStatus(request.status)}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
                 );
