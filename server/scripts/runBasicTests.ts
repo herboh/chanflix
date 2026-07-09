@@ -17,6 +17,7 @@ import {
   parseTmdbMetadataPayload,
 } from '@server/lib/tmdbMetadataCache';
 import { dedupeTmdbPrewarmCandidates } from '@server/lib/tmdbMetadataPrewarm';
+import { groupDownloadsBySeason } from '@server/lib/downloadEnrichment';
 import { classifyLocalMediaStatus } from '@server/lib/libraryStatus';
 import {
   buildPendingRequestSummary,
@@ -799,6 +800,78 @@ const tests: TestCase[] = [
         ),
         'partial'
       );
+    },
+  },
+  {
+    name: 'groupDownloadsBySeason collapses episodes by series and season',
+    run: () => {
+      type Row = {
+        mediaType: 'movie' | 'tv';
+        externalId: number;
+        size: number;
+        sizeLeft: number;
+        title: string;
+        episode?: { seasonNumber: number; episodeNumber: number; id: number };
+      };
+
+      const rows: Row[] = [
+        { mediaType: 'movie', externalId: 1, size: 100, sizeLeft: 0, title: 'A' },
+        {
+          mediaType: 'tv',
+          externalId: 5,
+          size: 10,
+          sizeLeft: 2,
+          title: 'Raw.S01E03',
+          episode: { seasonNumber: 1, episodeNumber: 3, id: 903 },
+        },
+        {
+          mediaType: 'tv',
+          externalId: 5,
+          size: 20,
+          sizeLeft: 4,
+          title: 'Raw.S01E01',
+          episode: { seasonNumber: 1, episodeNumber: 1, id: 901 },
+        },
+        {
+          mediaType: 'tv',
+          externalId: 5,
+          size: 30,
+          sizeLeft: 6,
+          title: 'Raw.S01E02',
+          episode: { seasonNumber: 1, episodeNumber: 2, id: 902 },
+        },
+        {
+          mediaType: 'tv',
+          externalId: 5,
+          size: 40,
+          sizeLeft: 8,
+          title: 'Raw.S02E01',
+          episode: { seasonNumber: 2, episodeNumber: 1, id: 921 },
+        },
+      ];
+
+      const grouped = groupDownloadsBySeason(rows);
+
+      // movie + season 1 (collapsed) + season 2 = 3 rows
+      assert.equal(grouped.length, 3);
+
+      const s1 = grouped.find(
+        (r) => r.externalId === 5 && r.seasonNumber === 1
+      );
+      assert.ok(s1);
+      assert.equal(s1?.episodeCount, 3);
+      assert.deepEqual(s1?.episodeNumbers, [1, 2, 3]);
+      assert.equal(s1?.size, 60);
+      assert.equal(s1?.sizeLeft, 12);
+      assert.equal(s1?.episode, undefined);
+
+      const movie = grouped.find((r) => r.mediaType === 'movie');
+      assert.ok(movie);
+      assert.equal(movie?.episodeCount, undefined);
+
+      const s2 = grouped.find((r) => r.seasonNumber === 2);
+      assert.equal(s2?.episodeCount, 1);
+      assert.deepEqual(s2?.episodeNumbers, [1]);
     },
   },
 ];

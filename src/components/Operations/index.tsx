@@ -48,7 +48,32 @@ interface NowDownload {
   };
   tmdbId?: number;
   posterPath?: string;
+  seasonNumber?: number;
+  episodeNumbers?: number[];
+  episodeCount?: number;
 }
+
+const formatEpisodeLabel = (item: NowDownload): string => {
+  if (item.episodeCount && item.seasonNumber != null) {
+    const eps = item.episodeNumbers ?? [];
+    const range =
+      eps.length > 1
+        ? `E${eps[0]}–E${eps[eps.length - 1]}`
+        : eps.length === 1
+        ? `E${eps[0]}`
+        : '';
+    const plural = item.episodeCount > 1 ? 's' : '';
+    return `Season ${item.seasonNumber} · ${item.episodeCount} ep${plural}${
+      range ? ` · ${range}` : ''
+    }`;
+  }
+
+  if (item.episode) {
+    return `S${item.episode.seasonNumber} E${item.episode.episodeNumber}`;
+  }
+
+  return '';
+};
 
 interface NowRecentDownload extends NowDownload {
   completedAt: string;
@@ -256,11 +281,8 @@ const DownloadRow = ({ item }: { item: NowDownload }) => {
               {item.title}
             </div>
             <div className="text-xs text-gray-400">
-              {item.episode
-                ? `S${item.episode.seasonNumber} E${item.episode.episodeNumber}`
-                : item.mediaType === 'movie'
-                ? 'Movie'
-                : 'Series'}
+              {formatEpisodeLabel(item) ||
+                (item.mediaType === 'movie' ? 'Movie' : 'Series')}
               {item.size > 0 &&
                 ` · ${formatBytes(item.size - item.sizeLeft)} of ${formatBytes(
                   item.size
@@ -312,10 +334,10 @@ const RecentDownloadRow = ({
               {item.title}
             </div>
             <div className="text-xs text-gray-400">
-              {formatTime(item.completedAt)}
-              {item.episode
-                ? ` · S${item.episode.seasonNumber} E${item.episode.episodeNumber}`
-                : ''}
+              <span title={new Date(item.completedAt).toLocaleString()}>
+                {formatTime(item.completedAt)}
+              </span>
+              {formatEpisodeLabel(item) ? ` · ${formatEpisodeLabel(item)}` : ''}
             </div>
           </div>
         </div>
@@ -359,6 +381,11 @@ const Operations = () => {
   const streams = now?.streams ?? [];
   const downloadCount = activeDownloads.length;
   const pendingCount = pendingRequests?.pageInfo.results ?? 0;
+  // Downloads have their own "Recent Completions" section above; keep this
+  // feed to watches and requests so the two don't echo each other.
+  const recentActivity = (activity ?? []).filter(
+    (item) => item.type !== 'download'
+  );
 
   return (
     <>
@@ -541,13 +568,13 @@ const Operations = () => {
         </div>
         {!activity ? (
           <LoadingSpinner />
-        ) : activity.length === 0 ? (
+        ) : recentActivity.length === 0 ? (
           <div className="rounded-md border border-gray-700 bg-gray-800 p-6 text-sm text-gray-400">
             No recent activity.
           </div>
         ) : (
           <div className="divide-y divide-gray-700 rounded-md border border-gray-700 bg-gray-800">
-            {activity.map((item) => (
+            {recentActivity.map((item) => (
               <div
                 key={`ops-activity-${item.id}`}
                 className="flex items-center justify-between gap-4 px-4 py-3"

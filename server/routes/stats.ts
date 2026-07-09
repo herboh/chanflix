@@ -9,6 +9,10 @@ import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
 import { MediaRequest } from '@server/entity/MediaRequest';
 import cacheManager from '@server/lib/cache';
+import {
+  groupDownloadsBySeason,
+  resolveDownloadMetadata,
+} from '@server/lib/downloadEnrichment';
 import downloadTracker, {
   DownloadingItem,
   RecentDownloadItem,
@@ -337,26 +341,44 @@ statsRoutes.get<
 
     if (canViewDownloads) {
       const downloads = downloadTracker.getAllDownloads();
-      downloadActivities = [...downloads.movies, ...downloads.tv].map(
-        (item, index) => ({
-          id: `download-${item.mediaType}-${item.externalId}-${index}`,
-          type: 'download',
-          occurredAt: new Date().toISOString(),
-          mediaType: item.mediaType,
-          mediaTitle: item.title,
-          status: item.status,
+      downloadActivities = await Promise.all(
+        [...downloads.movies, ...downloads.tv].map(async (item, index) => {
+          const meta = await resolveDownloadMetadata(
+            tmdb,
+            item.mediaType,
+            item.externalId
+          );
+
+          return {
+            id: `download-${item.mediaType}-${item.externalId}-${index}`,
+            type: 'download' as const,
+            occurredAt: new Date().toISOString(),
+            mediaType: item.mediaType,
+            mediaTitle: meta.title ?? item.title,
+            status: item.status,
+          };
         })
       );
-      recentDownloadActivities = (
-        await downloadTracker.getRecentDownloads()
-      ).map((item, index) => ({
-        id: `recent-download-${item.mediaType}-${item.externalId}-${index}`,
-        type: 'download',
-        occurredAt: item.completedAt.toISOString(),
-        mediaType: item.mediaType,
-        mediaTitle: item.title,
-        status: item.outcome,
-      }));
+      recentDownloadActivities = await Promise.all(
+        (await downloadTracker.getRecentDownloads()).map(
+          async (item, index) => {
+            const meta = await resolveDownloadMetadata(
+              tmdb,
+              item.mediaType,
+              item.externalId
+            );
+
+            return {
+              id: `recent-download-${item.mediaType}-${item.externalId}-${index}`,
+              type: 'download' as const,
+              occurredAt: item.completedAt.toISOString(),
+              mediaType: item.mediaType,
+              mediaTitle: meta.title ?? item.title,
+              status: item.outcome,
+            };
+          }
+        )
+      );
     }
 
     const response = [
@@ -492,6 +514,9 @@ export type NowDownload = {
   };
   tmdbId?: number;
   posterPath?: string;
+  seasonNumber?: number;
+  episodeNumbers?: number[];
+  episodeCount?: number;
 };
 
 export type NowRecentDownload = NowDownload & {
@@ -607,30 +632,18 @@ const enrichNowDownload = async (
       : undefined,
   };
 
-  try {
-    const media = await getRepository(Media).findOne({
-      where: [
-        { mediaType: item.mediaType, externalServiceId: item.externalId },
-        { mediaType: item.mediaType, externalServiceId4k: item.externalId },
-      ],
-    });
+  const meta = await resolveDownloadMetadata(
+    tmdb,
+    item.mediaType,
+    item.externalId
+  );
 
-    if (media?.tmdbId) {
-      return {
-        ...base,
-        tmdbId: media.tmdbId,
-        posterPath: await resolvePoster(tmdb, item.mediaType, media.tmdbId),
-      };
-    }
-  } catch (e) {
-    logger.debug('Failed to enrich now download with media metadata', {
-      label: 'API',
-      externalId: item.externalId,
-      errorMessage: e instanceof Error ? e.message : 'Unknown error',
-    });
-  }
-
-  return base;
+  return {
+    ...base,
+    title: meta.title ?? base.title,
+    tmdbId: meta.tmdbId,
+    posterPath: meta.posterPath,
+  };
 };
 
 const enrichNowStream = async (
@@ -716,20 +729,26 @@ statsRoutes.get<Record<string, never>, NowResponse | { error: string }>(
         const recent = await downloadTracker.getRecentDownloads();
         const now = new Date();
 
-        downloads = await Promise.all(
-          [...active.movies, ...active.tv].map((item) =>
-            enrichNowDownload(tmdb, item)
+        downloads = groupDownloadsBySeason(
+          await Promise.all(
+            [...active.movies, ...active.tv].map((item) =>
+              enrichNowDownload(tmdb, item)
+            )
           )
         );
 
-        recentlyFinished = await Promise.all(
-          recent
-            .filter((item: RecentDownloadItem) => isRecentlyFinished(item, now))
-            .map(async (item) => ({
-              ...(await enrichNowDownload(tmdb, item)),
-              completedAt: new Date(item.completedAt).toISOString(),
-              outcome: item.outcome,
-            }))
+        recentlyFinished = groupDownloadsBySeason(
+          await Promise.all(
+            recent
+              .filter((item: RecentDownloadItem) =>
+                isRecentlyFinished(item, now)
+              )
+              .map(async (item) => ({
+                ...(await enrichNowDownload(tmdb, item)),
+                completedAt: new Date(item.completedAt).toISOString(),
+                outcome: item.outcome,
+              }))
+          )
         );
       }
 
