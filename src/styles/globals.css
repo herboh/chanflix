@@ -43,6 +43,47 @@
   * {
     border-radius: 0 !important;
   }
+
+  ::selection {
+    background-color: #d79921;
+    color: #1d2021;
+  }
+
+  :focus-visible {
+    outline: 2px solid #b8bb26;
+    outline-offset: 1px;
+  }
+
+  /* Square terminal scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #504945 #1d2021;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: #1d2021;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: #504945;
+    border: 2px solid #1d2021;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: #665c54;
+  }
+
+  /* Snappy, terminal-feeling motion: cap all transition durations */
+  *,
+  ::before,
+  ::after {
+    transition-duration: 120ms !important;
+  }
 }
 
 @layer components {

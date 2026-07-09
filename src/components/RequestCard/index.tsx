@@ -331,7 +331,7 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
               className="absolute inset-0"
               style={{
                 backgroundImage:
-                  'linear-gradient(135deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 75%)',
+                  'linear-gradient(135deg, rgba(29, 32, 33, 0.47) 0%, rgba(29, 32, 33, 1) 75%)',
               }}
             />
           </div>
