@@ -4514,6 +4514,40 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Company'
+  /discover/criterion:
+    get:
+      summary: Discover Criterion Collection movies
+      description: Returns a shared, periodically shuffled list of Criterion Collection movies.
+      tags:
+        - search
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: number
+            example: 1
+            default: 1
+      responses:
+        '200':
+          description: Results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  page:
+                    type: number
+                    example: 1
+                  totalPages:
+                    type: number
+                    example: 1
+                  totalResults:
+                    type: number
+                    example: 20
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MovieResult'
   /discover/movies:
     get:
       summary: Discover movies
