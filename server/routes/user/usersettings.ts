@@ -2,9 +2,16 @@ import { getRepository } from '@server/datasource';
 import { User } from '@server/entity/User';
 import { UserSettings } from '@server/entity/UserSettings';
 import type {
+  UserQualityTriggers,
   UserSettingsGeneralResponse,
   UserSettingsNotificationsResponse,
+  UserSettingsQualityTriggersResponse,
 } from '@server/interfaces/api/userSettingsInterfaces';
+import {
+  defaultQualityTriggers,
+  parseQualityTriggers,
+  serializeQualityTriggers,
+} from '@server/lib/qualityTriggers';
 import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
@@ -419,6 +426,80 @@ userSettingsRoutes.post<
       await userRepository.save(user);
 
       return res.status(200).json({ permissions: user.permissions });
+    } catch (e) {
+      next({ status: 500, message: e.message });
+    }
+  }
+);
+
+userSettingsRoutes.get<{ id: string }, UserSettingsQualityTriggersResponse>(
+  '/quality-triggers',
+  isOwnProfileOrAdmin(),
+  async (req, res, next) => {
+    const userRepository = getRepository(User);
+
+    try {
+      const user = await userRepository.findOne({
+        where: { id: Number(req.params.id) },
+      });
+
+      if (!user) {
+        return next({ status: 404, message: 'User not found.' });
+      }
+
+      return res.status(200).json({
+        qualityTriggers: user.settings?.qualityTriggers ?? defaultQualityTriggers(),
+      });
+    } catch (e) {
+      next({ status: 500, message: e.message });
+    }
+  }
+);
+
+userSettingsRoutes.post<
+  { id: string },
+  UserSettingsQualityTriggersResponse,
+  { qualityTriggers: UserQualityTriggers }
+>(
+  '/quality-triggers',
+  isAuthenticated(Permission.MANAGE_USERS),
+  async (req, res, next) => {
+    const userRepository = getRepository(User);
+
+    try {
+      const user = await userRepository.findOne({
+        where: { id: Number(req.params.id) },
+      });
+
+      if (!user) {
+        return next({ status: 404, message: 'User not found.' });
+      }
+
+      // "Owner" user settings cannot be modified by other users
+      if (user.id === 1 && req.user?.id !== 1) {
+        return next({
+          status: 403,
+          message: "You do not have permission to modify this user's settings.",
+        });
+      }
+
+      // Round-trip through parse so only known fields are persisted
+      const qualityTriggers = parseQualityTriggers(
+        serializeQualityTriggers(req.body.qualityTriggers)
+      );
+
+      if (!user.settings) {
+        user.settings = new UserSettings({
+          user: req.user,
+          qualityTriggers,
+        });
+      } else {
+        user.settings.qualityTriggers = qualityTriggers;
+      }
+
+      await userRepository.save(user);
+
+      return res.status(200).json({ qualityTriggers });
     } catch (e) {
       next({ status: 500, message: e.message });
     }

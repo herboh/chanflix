@@ -18,6 +18,12 @@ import {
 } from '@server/lib/tmdbMetadataCache';
 import { dedupeTmdbPrewarmCandidates } from '@server/lib/tmdbMetadataPrewarm';
 import { buildPendingRequestSummary } from '@server/routes/stats';
+import {
+  defaultQualityTriggers,
+  evaluateQualityTriggers,
+  parseQualityTriggers,
+  serializeQualityTriggers,
+} from '@server/lib/qualityTriggers';
 import type { RequestTagApi } from '@server/lib/requestTags';
 import {
   getRequestUserTagLabel,
@@ -203,6 +209,56 @@ const tests: TestCase[] = [
         await resolveRequestUserTagId(brokenApi, requestUser),
         undefined
       );
+    },
+  },
+  {
+    name: 'quality trigger settings parse defensively and round-trip',
+    run: () => {
+      assert.deepEqual(parseQualityTriggers(null), defaultQualityTriggers());
+      assert.deepEqual(parseQualityTriggers('not json'), defaultQualityTriggers());
+      assert.deepEqual(parseQualityTriggers('"2"'), defaultQualityTriggers());
+      assert.deepEqual(
+        parseQualityTriggers('{"enabled":true,"maxProfileId":7,"junk":1}'),
+        { enabled: true, maxProfileId: 7, rules: undefined }
+      );
+      assert.deepEqual(
+        parseQualityTriggers('{"enabled":"yes","maxProfileId":-2}'),
+        { enabled: false, maxProfileId: undefined, rules: undefined }
+      );
+
+      const serialized = serializeQualityTriggers({
+        enabled: true,
+        maxProfileId: 3,
+        rules: [{ note: 'later' }],
+      });
+      assert.ok(serialized);
+      assert.deepEqual(parseQualityTriggers(serialized), {
+        enabled: true,
+        maxProfileId: 3,
+        rules: [{ note: 'later' }],
+      });
+      assert.equal(serializeQualityTriggers(null), null);
+    },
+  },
+  {
+    name: 'quality trigger evaluation is a strict no-op stub',
+    run: () => {
+      const context = { mediaType: 'movie' as const, is4k: false };
+
+      // No user / no settings / disabled triggers: profile passes through.
+      assert.equal(evaluateQualityTriggers(undefined, 5, context), 5);
+      assert.equal(
+        evaluateQualityTriggers(user(4, 'Nick Hump 4'), 5, context),
+        5
+      );
+
+      // Enabled triggers must still return the profile unchanged until
+      // rules are implemented.
+      const triggerUser = user(4, 'Nick Hump 4');
+      triggerUser.settings = {
+        qualityTriggers: { enabled: true, maxProfileId: 2 },
+      } as never;
+      assert.equal(evaluateQualityTriggers(triggerUser, 5, context), 5);
     },
   },
   {
