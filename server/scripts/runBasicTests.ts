@@ -43,6 +43,7 @@ import {
   createRequestConfirmation,
   evaluateAiRequestPolicy,
   rankAiMediaCards,
+  resolveAiTitleMatch,
 } from '@server/lib/aiAgent';
 import {
   defaultQualityTriggers,
@@ -277,13 +278,15 @@ const tests: TestCase[] = [
     },
   },
   {
-    name: 'AI agent exposes bounded person and Plex lookup tools',
+    name: 'AI agent exposes bounded person, Plex, and request tools',
     run: () => {
       const toolNames = AI_AGENT_TOOLS.map((tool) => tool.function.name);
+      assert.ok(toolNames.includes('lookup_person'));
       assert.ok(toolNames.includes('search_people'));
       assert.ok(toolNames.includes('get_person_filmography'));
       assert.ok(toolNames.includes('get_plex_library_summary'));
       assert.ok(toolNames.includes('display_titles'));
+      assert.ok(toolNames.includes('prepare_title_request'));
 
       const director = {
         job: 'Director',
@@ -301,6 +304,38 @@ const tests: TestCase[] = [
       assert.equal(aiPersonCreditMatchesRole(writer, 'writing'), true);
       assert.equal(aiPersonCreditMatchesRole(actor, 'acting'), true);
       assert.equal(aiPersonCreditMatchesRole(actor, 'crew'), false);
+    },
+  },
+  {
+    name: 'AI title requests resolve only one exact title',
+    run: () => {
+      const card = (title: string, year: string, tmdbId: number) => ({
+        kind: 'media' as const,
+        mediaType: 'movie' as const,
+        tmdbId,
+        title,
+        year,
+        status: 'unknown' as const,
+        href: `/movie/${tmdbId}`,
+      });
+      const cards = [
+        card('Heat', '1995', 949),
+        card('Heat', '1986', 42089),
+        card('Heatwave', '2022', 960258),
+      ];
+
+      const ambiguous = resolveAiTitleMatch(cards, 'Heat');
+      assert.equal(ambiguous.match, undefined);
+      assert.equal(ambiguous.ambiguous, true);
+      assert.equal(ambiguous.candidates.length, 2);
+
+      const exact = resolveAiTitleMatch(cards, 'Heat', { year: 1995 });
+      assert.equal(exact.match?.tmdbId, 949);
+      assert.equal(exact.ambiguous, false);
+
+      const fuzzy = resolveAiTitleMatch(cards, 'Heatt');
+      assert.equal(fuzzy.match, undefined);
+      assert.equal(fuzzy.ambiguous, false);
     },
   },
   {

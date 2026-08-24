@@ -172,6 +172,9 @@ const personCreditsSchema = z.object({
   available_only: z.boolean().default(false),
   limit: z.number().int().min(1).max(5).default(5),
 });
+const personLookupSchema = peopleSearchSchema.merge(
+  personCreditsSchema.omit({ person_id: true })
+);
 const plexSummarySchema = z.object({
   media_type: z.enum(["movie", "tv", "either"]).default("either"),
   include_recent: z.boolean().default(true),
@@ -197,6 +200,12 @@ const availableSchema = z.object({
 const requestSchema = z.object({
   media_type: mediaTypeSchema,
   tmdb_id: z.number().int().positive(),
+  seasons: z.array(z.number().int().min(1).max(100)).max(3).optional(),
+});
+const titleRequestSchema = z.object({
+  query: z.string().trim().min(1).max(120),
+  media_type: z.enum(["movie", "tv", "either"]).default("either"),
+  year: z.number().int().min(1870).max(2100).optional(),
   seasons: z.array(z.number().int().min(1).max(100)).max(3).optional(),
 });
 
@@ -239,8 +248,27 @@ export const AI_AGENT_TOOLS = [
     ["media_type", "tmdb_id"]
   ),
   tool(
+    "lookup_person",
+    "Resolve an actor, director, writer, or other film person by name and return a small verified filmography in one call. Prefer this over separate person search and filmography calls; ambiguous names are returned for clarification.",
+    {
+      query: { type: "string", description: "Person name." },
+      role: {
+        type: "string",
+        enum: ["acting", "directing", "writing", "crew", "all"],
+      },
+      media_type: { type: "string", enum: ["movie", "tv", "either"] },
+      available_only: {
+        type: "boolean",
+        description:
+          "True when the user asks what is available, on Plex, or on this server.",
+      },
+      limit: { type: "integer", minimum: 1, maximum: 5 },
+    },
+    ["query"]
+  ),
+  tool(
     "search_people",
-    "Search cached TMDB identity data for an actor, director, writer, or other film person. Use whenever a user names or describes a movie person and their identity is not already confirmed.",
+    "Resolve an ambiguous film-person name into candidates. Usually use lookup_person instead.",
     {
       query: { type: "string", description: "Person name." },
       limit: { type: "integer", minimum: 1, maximum: 3 },
@@ -249,7 +277,7 @@ export const AI_AGENT_TOOLS = [
   ),
   tool(
     "get_person_filmography",
-    "Get verified person details and a small ranked filmography, cross-checked against the local Plex library. Use for films starring, directed by, written by, or otherwise credited to a person.",
+    "Get a verified filmography when a person's TMDB ID is already known, usually after resolving an ambiguous lookup_person result.",
     {
       person_id: { type: "integer", minimum: 1 },
       role: {
@@ -331,8 +359,23 @@ export const AI_AGENT_TOOLS = [
     {}
   ),
   tool(
+    "prepare_title_request",
+    "For an explicit add, get, download, or request instruction: resolve an exact movie or series by title and optional year, then prepare its Chanflix confirmation button. It refuses fuzzy or ambiguous matches. Confirmation, permissions, quotas, and server approval policy still apply.",
+    {
+      query: { type: "string", description: "Exact title." },
+      media_type: { type: "string", enum: ["movie", "tv", "either"] },
+      year: { type: "integer", minimum: 1870, maximum: 2100 },
+      seasons: {
+        type: "array",
+        maxItems: 3,
+        items: { type: "integer", minimum: 1, maximum: 100 },
+      },
+    },
+    ["query"]
+  ),
+  tool(
     "prepare_request",
-    "Prepare, but do not execute, a Chanflix request. The user must confirm the returned button. Series are limited to at most three explicit seasons and default to season 1.",
+    "Prepare a request only when an exact TMDB ID is already known. Usually use prepare_title_request. The user must confirm the returned button.",
     {
       media_type: { type: "string", enum: ["movie", "tv"] },
       tmdb_id: { type: "integer", minimum: 1 },
@@ -426,6 +469,32 @@ const normalizedTitle = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+
+export const resolveAiTitleMatch = (
+  cards: AiMediaCard[],
+  query: string,
+  options: { mediaType?: "movie" | "tv" | "either"; year?: number } = {}
+): {
+  match?: AiMediaCard;
+  ambiguous: boolean;
+  candidates: AiMediaCard[];
+} => {
+  const eligible = cards.filter(
+    (card) =>
+      (!options.mediaType ||
+        options.mediaType === "either" ||
+        card.mediaType === options.mediaType) &&
+      (!options.year || Number(card.year) === options.year)
+  );
+  const exact = eligible.filter(
+    (card) => normalizedTitle(card.title) === normalizedTitle(query)
+  );
+  return {
+    match: exact.length === 1 ? exact[0] : undefined,
+    ambiguous: exact.length > 1,
+    candidates: (exact.length > 1 ? exact : eligible).slice(0, 3),
+  };
+};
 
 export const rankAiMediaCards = (
   cards: AiMediaCard[],
@@ -671,6 +740,53 @@ const executePersonFilmography = async (
       })),
     }),
     cards,
+  };
+};
+
+const executeLookupPerson = async (raw: unknown): Promise<AiToolResult> => {
+  const args = personLookupSchema.parse(raw);
+  const response = await new TheMovieDb().searchMulti({
+    query: args.query,
+    page: 1,
+  });
+  const people = response.results
+    .filter(
+      (result): result is TmdbPersonResult =>
+        result.media_type === "person" && !result.adult
+    )
+    .sort((left, right) => right.popularity - left.popularity);
+  const exact = people.filter(
+    (person) => normalizedTitle(person.name) === normalizedTitle(args.query)
+  );
+
+  if (exact.length === 1) {
+    return executePersonFilmography({
+      person_id: exact[0].id,
+      role: args.role,
+      media_type: args.media_type,
+      available_only: args.available_only,
+      limit: args.limit,
+    });
+  }
+
+  const candidates = (exact.length > 1 ? exact : people).slice(0, 3);
+  const relatedMedia = await Media.getRelatedMedia(
+    candidates.flatMap((person) => person.known_for.map((credit) => credit.id))
+  );
+  return {
+    content: JSON.stringify({
+      resolved: false,
+      ambiguous: exact.length > 1,
+      reason:
+        exact.length > 1
+          ? "Multiple people have that exact name. Ask the user which one."
+          : "No exact person-name match was found. Ask the user to clarify.",
+      candidates: candidates.map((person) => ({
+        personId: person.id,
+        name: person.name,
+        knownFor: summarizeKnownFor(person, relatedMedia),
+      })),
+    }),
   };
 };
 
@@ -1060,6 +1176,65 @@ const executePrepareRequest = async (
   };
 };
 
+const executePrepareTitleRequest = async (
+  raw: unknown,
+  user: User
+): Promise<AiToolResult> => {
+  const args = titleRequestSchema.parse(raw);
+  const response = await new TheMovieDb().searchMulti({
+    query: args.query,
+    page: 1,
+  });
+  const media = await Media.getRelatedMedia(
+    response.results.map((result) => result.id)
+  );
+  const cards = rankAiMediaCards(
+    mapSearchResults(response.results, media)
+      .map(cardFromResult)
+      .filter((card): card is AiMediaCard => !!card),
+    args.query
+  );
+  const resolution = resolveAiTitleMatch(cards, args.query, {
+    mediaType: args.media_type,
+    year: args.year,
+  });
+
+  if (!resolution.match) {
+    return {
+      content: JSON.stringify({
+        prepared: false,
+        ambiguous: resolution.ambiguous,
+        reason: resolution.ambiguous
+          ? "Multiple exact titles match. Ask the user to choose a year or type."
+          : "No exact title match was found. Ask the user to clarify; do not request a fuzzy match.",
+        candidates: summarizeCards(resolution.candidates),
+      }),
+      cards: resolution.candidates,
+    };
+  }
+
+  const prepared = await executePrepareRequest(
+    {
+      media_type: resolution.match.mediaType,
+      tmdb_id: resolution.match.tmdbId,
+      seasons: resolution.match.mediaType === "tv" ? args.seasons : undefined,
+    },
+    user
+  );
+  return {
+    ...prepared,
+    content: JSON.stringify({
+      resolvedFromQuery: {
+        query: args.query,
+        year: args.year,
+        mediaType: resolution.match.mediaType,
+        tmdbId: resolution.match.tmdbId,
+      },
+      ...JSON.parse(prepared.content),
+    }),
+  };
+};
+
 export const createRequestConfirmation = (
   request: Omit<PendingAiRequest, "expiresAt">,
   now = Date.now()
@@ -1095,6 +1270,8 @@ export const executeAiTool = async (
         return await executeSearch(raw);
       case "get_title":
         return await executeGetTitle(raw);
+      case "lookup_person":
+        return await executeLookupPerson(raw);
       case "search_people":
         return await executeSearchPeople(raw);
       case "get_person_filmography":
@@ -1116,6 +1293,8 @@ export const executeAiTool = async (
         return await executeMyRequests(raw, user);
       case "get_download_status":
         return await executeDownloads(user);
+      case "prepare_title_request":
+        return await executePrepareTitleRequest(raw, user);
       case "prepare_request":
         return await executePrepareRequest(raw, user);
       default:
