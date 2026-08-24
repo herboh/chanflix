@@ -8,9 +8,11 @@ import {
   ArrowUpIcon,
   ClipboardDocumentIcon,
   FilmIcon,
+  HandThumbUpIcon,
   PlusCircleIcon,
   StopIcon,
   TrashIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import {
   BellIcon,
@@ -41,6 +43,25 @@ interface ChatMessage {
   content: string;
   cards?: MediaCardData[];
   mediaContext?: MediaContext;
+  traceId?: string;
+  feedback?: AiFeedback;
+}
+
+type AiFeedbackReason =
+  | "flagged"
+  | "wrong_tool"
+  | "wrong_entity"
+  | "missing_tool"
+  | "unsupported_claim"
+  | "recommendation_or_cards"
+  | "request_or_safety"
+  | "formatting"
+  | "other";
+
+interface AiFeedback {
+  rating: "up" | "down";
+  reasons: AiFeedbackReason[];
+  comment?: string;
 }
 
 interface MediaCardData {
@@ -71,6 +92,7 @@ interface StreamPayload {
   contextWindowTokens?: number;
   contextUsedPercent?: number;
   tokensPerSecond?: number;
+  traceId?: string;
 }
 
 interface ModelInfo {
@@ -250,6 +272,41 @@ const restoreMessages = (): ChatMessage[] => {
         id: message.id,
         role: message.role,
         content: message.content,
+        traceId:
+          message.role === "assistant" &&
+          typeof message.traceId === "string" &&
+          /^[0-9a-f-]{36}$/i.test(message.traceId)
+            ? message.traceId
+            : undefined,
+        feedback:
+          message.role === "assistant" &&
+          message.feedback &&
+          (message.feedback.rating === "up" ||
+            message.feedback.rating === "down") &&
+          Array.isArray(message.feedback.reasons)
+            ? {
+                rating: message.feedback.rating,
+                reasons: message.feedback.reasons
+                  .filter((reason): reason is AiFeedbackReason =>
+                    [
+                      "flagged",
+                      "wrong_tool",
+                      "wrong_entity",
+                      "missing_tool",
+                      "unsupported_claim",
+                      "recommendation_or_cards",
+                      "request_or_safety",
+                      "formatting",
+                      "other",
+                    ].includes(reason)
+                  )
+                  .slice(0, 4),
+                comment:
+                  typeof message.feedback.comment === "string"
+                    ? message.feedback.comment.slice(0, 1_000)
+                    : undefined,
+              }
+            : undefined,
         mediaContext:
           message.mediaContext &&
           (message.mediaContext.mediaType === "movie" ||
@@ -650,16 +707,41 @@ const Markdown = ({ content }: { content: string }) => (
 const Message = ({
   message,
   onPrepareAgain,
+  onFeedback,
 }: {
   message: ChatMessage;
   onPrepareAgain?: (card: MediaCardData) => void;
+  onFeedback?: (
+    messageId: string,
+    traceId: string,
+    feedback: AiFeedback
+  ) => Promise<void>;
 }) => {
   const [copied, setCopied] = useState(false);
+  const [feedbackState, setFeedbackState] = useState<
+    "idle" | "saving" | "error"
+  >("idle");
+  const [feedbackError, setFeedbackError] = useState("");
 
   const copy = async () => {
     await navigator.clipboard.writeText(message.content);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
+  };
+
+  const submitFeedback = async (feedback: AiFeedback) => {
+    if (!message.traceId || !onFeedback || feedbackState === "saving") return;
+    setFeedbackState("saving");
+    setFeedbackError("");
+    try {
+      await onFeedback(message.id, message.traceId, feedback);
+      setFeedbackState("idle");
+    } catch (error) {
+      setFeedbackState("error");
+      setFeedbackError(
+        error instanceof Error ? error.message : "Could not save feedback."
+      );
+    }
   };
 
   if (message.role === "user") {
@@ -694,15 +776,57 @@ const Message = ({
     <article className="group max-w-3xl border-l-2 border-gray-600 bg-gray-900 px-4 py-3">
       <Markdown content={message.content} />
       <MediaCards cards={message.cards} onPrepareAgain={onPrepareAgain} />
-      <button
-        type="button"
-        onClick={copy}
-        className="mt-2 flex items-center gap-1 text-xs uppercase tracking-wide text-gray-500 opacity-100 hover:text-gray-300 sm:opacity-0 sm:focus:opacity-100 sm:group-hover:opacity-100"
-        aria-label="Copy answer"
-      >
-        <ClipboardDocumentIcon className="h-4 w-4" />
-        {copied ? "Copied" : "Copy"}
-      </button>
+      <div className="mt-2 flex items-center gap-3 text-xs uppercase tracking-wide text-gray-500">
+        <button
+          type="button"
+          onClick={copy}
+          className="flex items-center gap-1 hover:text-gray-300"
+          aria-label="Copy answer"
+        >
+          <ClipboardDocumentIcon className="h-4 w-4" />
+          {copied ? "Copied" : "Copy"}
+        </button>
+        {message.traceId && onFeedback && (
+          <>
+            <button
+              type="button"
+              onClick={() => submitFeedback({ rating: "up", reasons: [] })}
+              disabled={feedbackState === "saving"}
+              className={
+                message.feedback?.rating === "up"
+                  ? "text-green-400"
+                  : "hover:text-green-400"
+              }
+              aria-label="Helpful answer"
+              title="Helpful"
+            >
+              <HandThumbUpIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                submitFeedback({ rating: "down", reasons: ["flagged"] })
+              }
+              disabled={feedbackState === "saving"}
+              className={
+                message.feedback?.rating === "down"
+                  ? "text-red-400"
+                  : "hover:text-red-400"
+              }
+              aria-label="Flag answer issue"
+              title="Flag an issue"
+            >
+              <XMarkIcon className="h-4 w-4" />
+            </button>
+            {message.feedback && (
+              <span className="normal-case text-gray-600">Feedback saved</span>
+            )}
+          </>
+        )}
+      </div>
+      {feedbackError && (
+        <p className="mt-2 text-xs text-red-400">{feedbackError}</p>
+      )}
     </article>
   );
 };
@@ -740,6 +864,7 @@ const AiChat = () => {
   const mediaHandoffStartedRef = useRef(false);
   const hasAnswerRef = useRef(false);
   const cardsRef = useRef<MediaCardData[]>([]);
+  const traceIdRef = useRef<string>();
   const blockedByFailedTurn =
     !streaming && messages[messages.length - 1]?.role === "user";
 
@@ -847,6 +972,9 @@ const AiChat = () => {
 
   const processEvent = useCallback(
     (eventName: string, payload: StreamPayload) => {
+      if (eventName === "meta" && payload.traceId) {
+        traceIdRef.current = payload.traceId;
+      }
       if (eventName === "status" && payload.phase) {
         setPhase(payload.phase);
         return;
@@ -928,6 +1056,7 @@ const AiChat = () => {
       reasoningBufferRef.current = "";
       hasAnswerRef.current = false;
       cardsRef.current = [];
+      traceIdRef.current = undefined;
       followStreamRef.current = true;
       setStreaming(true);
       setStreamingAnswer("");
@@ -1043,6 +1172,7 @@ const AiChat = () => {
             role: "assistant" as const,
             content: answer,
             cards: cardsRef.current.length ? cardsRef.current : undefined,
+            traceId: traceIdRef.current,
           },
         ];
         if (mountedRef.current) {
@@ -1062,6 +1192,7 @@ const AiChat = () => {
                   role: "assistant" as const,
                   content: partialAnswer,
                   cards: cardsRef.current.length ? cardsRef.current : undefined,
+                  traceId: traceIdRef.current,
                 },
               ];
               setMessages(stoppedMessages);
@@ -1135,6 +1266,38 @@ const AiChat = () => {
     }
     await startStream(nextMessages);
   };
+
+  const saveFeedback = useCallback(
+    async (messageId: string, traceId: string, feedback: AiFeedback) => {
+      const csrfToken = getCsrfToken();
+      const response = await fetch(`/api/v1/chat/${traceId}/feedback`, {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
+        },
+        body: JSON.stringify(feedback),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        feedback?: AiFeedback;
+        error?: string;
+      };
+      if (!response.ok || !body.feedback) {
+        throw new Error(body.error ?? "Could not save feedback.");
+      }
+      setMessages((current) => {
+        const updated = current.map((message) =>
+          message.id === messageId
+            ? { ...message, feedback: body.feedback }
+            : message
+        );
+        saveMessages(updated);
+        return updated;
+      });
+    },
+    []
+  );
 
   useEffect(() => {
     if (!router.isReady || mediaHandoffStartedRef.current) return;
@@ -1260,7 +1423,7 @@ const AiChat = () => {
             &gt; Qwen
           </h1>
           <p className="text-xs uppercase tracking-wide text-gray-500">
-            Local AI · session-only history
+            Local AI · 30-day privacy-filtered evaluation traces
           </p>
         </div>
         <button
@@ -1287,7 +1450,9 @@ const AiChat = () => {
                 Ask anything
               </p>
               <p className="mt-1 text-sm text-gray-500">
-                One private, session-only conversation with Qwen.
+                Browser history is session-only. Privacy-filtered prompts,
+                answers, and tool traces are retained for 30 days to improve
+                Qwen.
               </p>
               <div className="mt-7 overflow-hidden opacity-75">
                 <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.22em] text-gray-700">
@@ -1327,6 +1492,7 @@ const AiChat = () => {
             key={message.id}
             message={message}
             onPrepareAgain={streaming ? undefined : prepareAgain}
+            onFeedback={streaming ? undefined : saveFeedback}
           />
         ))}
 

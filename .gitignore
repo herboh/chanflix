@@ -38,6 +38,12 @@ config/db.bak/
 config/settings.bak
 handoff.md
 
+# Local AI evaluation artifacts and reviewed production traces
+/evals/logs/
+/evals/reports/
+/evals/review/
+/evals/__pycache__/
+
 # reference 
 CLAUDE.md
 .claude/
