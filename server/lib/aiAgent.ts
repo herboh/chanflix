@@ -328,6 +328,7 @@ const tool = (
   function: {
     name,
     description,
+    strict: true,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -750,6 +751,36 @@ const parseArguments = (raw: string): unknown => {
     return JSON.parse(raw || "{}");
   } catch (_error) {
     throw new Error("Tool arguments were not valid JSON.");
+  }
+};
+
+export const validateAiToolCallArguments = (call: AiToolCall): boolean => {
+  try {
+    const raw = parseArguments(call.arguments);
+    switch (call.name) {
+      case "lookup_media":
+        lookupMediaSchema.parse(raw);
+        return true;
+      case "lookup_person":
+        mergedPersonLookupSchema.parse(raw);
+        return true;
+      case "browse_library":
+        browseLibrarySchema.parse(raw);
+        return true;
+      case "check_activity":
+        checkActivitySchema.parse(raw);
+        return true;
+      case "request_media":
+        requestMediaSchema.parse(raw);
+        return true;
+      case "search_web":
+        webSearchSchema.parse(raw);
+        return true;
+      default:
+        return false;
+    }
+  } catch (_error) {
+    return false;
   }
 };
 

@@ -254,6 +254,7 @@ export type JobId =
   | 'sonarr-scan'
   | 'download-sync'
   | 'download-sync-reset'
+  | 'ai-trace-cleanup'
   | 'image-cache-cleanup'
   | 'tmdb-metadata-prewarm'
   | 'availability-sync';
@@ -430,6 +431,9 @@ class Settings {
         },
         'download-sync-reset': {
           schedule: '0 0 1 * * *',
+        },
+        'ai-trace-cleanup': {
+          schedule: '0 45 2 * * *',
         },
         'tmdb-metadata-prewarm': {
           schedule: '0 30 2 * * *',

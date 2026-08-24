@@ -8,6 +8,8 @@ import {
   ArrowUpIcon,
   ClipboardDocumentIcon,
   FilmIcon,
+  HandThumbDownIcon,
+  HandThumbUpIcon,
   PlusCircleIcon,
   StopIcon,
   TrashIcon,
@@ -41,6 +43,24 @@ interface ChatMessage {
   content: string;
   cards?: MediaCardData[];
   mediaContext?: MediaContext;
+  traceId?: string;
+  feedback?: AiFeedback;
+}
+
+type AiFeedbackReason =
+  | "wrong_tool"
+  | "wrong_entity"
+  | "missing_tool"
+  | "unsupported_claim"
+  | "recommendation_or_cards"
+  | "request_or_safety"
+  | "formatting"
+  | "other";
+
+interface AiFeedback {
+  rating: "up" | "down";
+  reasons: AiFeedbackReason[];
+  comment?: string;
 }
 
 interface MediaCardData {
@@ -71,6 +91,7 @@ interface StreamPayload {
   contextWindowTokens?: number;
   contextUsedPercent?: number;
   tokensPerSecond?: number;
+  traceId?: string;
 }
 
 interface ModelInfo {
@@ -230,6 +251,20 @@ const getCsrfToken = (): string | undefined => {
     : undefined;
 };
 
+const FEEDBACK_REASONS: Array<{
+  value: AiFeedbackReason;
+  label: string;
+}> = [
+  { value: "wrong_tool", label: "Wrong tool" },
+  { value: "wrong_entity", label: "Wrong title/person" },
+  { value: "missing_tool", label: "Should have used a tool" },
+  { value: "unsupported_claim", label: "Unsupported claim" },
+  { value: "recommendation_or_cards", label: "Recommendations/cards" },
+  { value: "request_or_safety", label: "Request or safety behavior" },
+  { value: "formatting", label: "Formatting or verbosity" },
+  { value: "other", label: "Other" },
+];
+
 const restoreMessages = (): ChatMessage[] => {
   try {
     const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "[]");
@@ -250,6 +285,31 @@ const restoreMessages = (): ChatMessage[] => {
         id: message.id,
         role: message.role,
         content: message.content,
+        traceId:
+          message.role === "assistant" &&
+          typeof message.traceId === "string" &&
+          /^[0-9a-f-]{36}$/i.test(message.traceId)
+            ? message.traceId
+            : undefined,
+        feedback:
+          message.role === "assistant" &&
+          message.feedback &&
+          (message.feedback.rating === "up" ||
+            message.feedback.rating === "down") &&
+          Array.isArray(message.feedback.reasons)
+            ? {
+                rating: message.feedback.rating,
+                reasons: message.feedback.reasons
+                  .filter((reason): reason is AiFeedbackReason =>
+                    FEEDBACK_REASONS.some((item) => item.value === reason)
+                  )
+                  .slice(0, 4),
+                comment:
+                  typeof message.feedback.comment === "string"
+                    ? message.feedback.comment.slice(0, 1_000)
+                    : undefined,
+              }
+            : undefined,
         mediaContext:
           message.mediaContext &&
           (message.mediaContext.mediaType === "movie" ||
@@ -650,16 +710,49 @@ const Markdown = ({ content }: { content: string }) => (
 const Message = ({
   message,
   onPrepareAgain,
+  onFeedback,
 }: {
   message: ChatMessage;
   onPrepareAgain?: (card: MediaCardData) => void;
+  onFeedback?: (
+    messageId: string,
+    traceId: string,
+    feedback: AiFeedback
+  ) => Promise<void>;
 }) => {
   const [copied, setCopied] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackReasons, setFeedbackReasons] = useState<AiFeedbackReason[]>(
+    message.feedback?.reasons ?? []
+  );
+  const [feedbackComment, setFeedbackComment] = useState(
+    message.feedback?.comment ?? ""
+  );
+  const [feedbackState, setFeedbackState] = useState<
+    "idle" | "saving" | "error"
+  >("idle");
+  const [feedbackError, setFeedbackError] = useState("");
 
   const copy = async () => {
     await navigator.clipboard.writeText(message.content);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
+  };
+
+  const submitFeedback = async (feedback: AiFeedback) => {
+    if (!message.traceId || !onFeedback || feedbackState === "saving") return;
+    setFeedbackState("saving");
+    setFeedbackError("");
+    try {
+      await onFeedback(message.id, message.traceId, feedback);
+      setFeedbackOpen(false);
+      setFeedbackState("idle");
+    } catch (error) {
+      setFeedbackState("error");
+      setFeedbackError(
+        error instanceof Error ? error.message : "Could not save feedback."
+      );
+    }
   };
 
   if (message.role === "user") {
@@ -694,15 +787,114 @@ const Message = ({
     <article className="group max-w-3xl border-l-2 border-gray-600 bg-gray-900 px-4 py-3">
       <Markdown content={message.content} />
       <MediaCards cards={message.cards} onPrepareAgain={onPrepareAgain} />
-      <button
-        type="button"
-        onClick={copy}
-        className="mt-2 flex items-center gap-1 text-xs uppercase tracking-wide text-gray-500 opacity-100 hover:text-gray-300 sm:opacity-0 sm:focus:opacity-100 sm:group-hover:opacity-100"
-        aria-label="Copy answer"
-      >
-        <ClipboardDocumentIcon className="h-4 w-4" />
-        {copied ? "Copied" : "Copy"}
-      </button>
+      <div className="mt-2 flex items-center gap-3 text-xs uppercase tracking-wide text-gray-500 opacity-100 sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={copy}
+          className="flex items-center gap-1 hover:text-gray-300"
+          aria-label="Copy answer"
+        >
+          <ClipboardDocumentIcon className="h-4 w-4" />
+          {copied ? "Copied" : "Copy"}
+        </button>
+        {message.traceId && onFeedback && (
+          <>
+            <button
+              type="button"
+              onClick={() => submitFeedback({ rating: "up", reasons: [] })}
+              disabled={feedbackState === "saving"}
+              className={
+                message.feedback?.rating === "up"
+                  ? "text-green-400"
+                  : "hover:text-green-400"
+              }
+              aria-label="Helpful answer"
+              title="Helpful"
+            >
+              <HandThumbUpIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setFeedbackOpen((current) => !current)}
+              disabled={feedbackState === "saving"}
+              className={
+                message.feedback?.rating === "down"
+                  ? "text-red-400"
+                  : "hover:text-red-400"
+              }
+              aria-label="Unhelpful answer"
+              title="Unhelpful"
+            >
+              <HandThumbDownIcon className="h-4 w-4" />
+            </button>
+            {message.feedback && (
+              <span className="normal-case text-gray-600">Feedback saved</span>
+            )}
+          </>
+        )}
+      </div>
+      {feedbackOpen && message.traceId && onFeedback && (
+        <div className="mt-3 border border-gray-700 bg-gray-800 p-3 text-xs text-gray-300">
+          <p className="mb-2 font-bold uppercase tracking-wide text-gray-400">
+            What went wrong?
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {FEEDBACK_REASONS.map((reason) => (
+              <label key={reason.value} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={feedbackReasons.includes(reason.value)}
+                  onChange={(event) => {
+                    setFeedbackReasons((current) =>
+                      event.target.checked
+                        ? [...current, reason.value].slice(0, 4)
+                        : current.filter((item) => item !== reason.value)
+                    );
+                  }}
+                  className="border-gray-600 bg-gray-900 text-indigo-500 focus:ring-indigo-500"
+                />
+                {reason.label}
+              </label>
+            ))}
+          </div>
+          <textarea
+            value={feedbackComment}
+            maxLength={1_000}
+            rows={2}
+            onChange={(event) => setFeedbackComment(event.target.value)}
+            placeholder="Optional note"
+            className="mt-3 w-full border border-gray-700 bg-gray-900 p-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500 focus:ring-0"
+          />
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              type="button"
+              disabled={!feedbackReasons.length || feedbackState === "saving"}
+              onClick={() =>
+                submitFeedback({
+                  rating: "down",
+                  reasons: feedbackReasons,
+                  ...(feedbackComment.trim()
+                    ? { comment: feedbackComment.trim() }
+                    : {}),
+                })
+              }
+              className="border border-red-700 px-3 py-1 font-bold uppercase tracking-wide text-red-300 hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {feedbackState === "saving" ? "Saving…" : "Save feedback"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFeedbackOpen(false)}
+              className="text-gray-500 hover:text-gray-300"
+            >
+              Cancel
+            </button>
+          </div>
+          {feedbackError && (
+            <p className="mt-2 text-red-400">{feedbackError}</p>
+          )}
+        </div>
+      )}
     </article>
   );
 };
@@ -740,6 +932,7 @@ const AiChat = () => {
   const mediaHandoffStartedRef = useRef(false);
   const hasAnswerRef = useRef(false);
   const cardsRef = useRef<MediaCardData[]>([]);
+  const traceIdRef = useRef<string>();
   const blockedByFailedTurn =
     !streaming && messages[messages.length - 1]?.role === "user";
 
@@ -847,6 +1040,9 @@ const AiChat = () => {
 
   const processEvent = useCallback(
     (eventName: string, payload: StreamPayload) => {
+      if (eventName === "meta" && payload.traceId) {
+        traceIdRef.current = payload.traceId;
+      }
       if (eventName === "status" && payload.phase) {
         setPhase(payload.phase);
         return;
@@ -925,6 +1121,7 @@ const AiChat = () => {
       reasoningBufferRef.current = "";
       hasAnswerRef.current = false;
       cardsRef.current = [];
+      traceIdRef.current = undefined;
       followStreamRef.current = true;
       setStreaming(true);
       setStreamingAnswer("");
@@ -1040,6 +1237,7 @@ const AiChat = () => {
             role: "assistant" as const,
             content: answer,
             cards: cardsRef.current.length ? cardsRef.current : undefined,
+            traceId: traceIdRef.current,
           },
         ];
         if (mountedRef.current) {
@@ -1059,6 +1257,7 @@ const AiChat = () => {
                   role: "assistant" as const,
                   content: partialAnswer,
                   cards: cardsRef.current.length ? cardsRef.current : undefined,
+                  traceId: traceIdRef.current,
                 },
               ];
               setMessages(stoppedMessages);
@@ -1132,6 +1331,38 @@ const AiChat = () => {
     }
     await startStream(nextMessages);
   };
+
+  const saveFeedback = useCallback(
+    async (messageId: string, traceId: string, feedback: AiFeedback) => {
+      const csrfToken = getCsrfToken();
+      const response = await fetch(`/api/v1/chat/${traceId}/feedback`, {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
+        },
+        body: JSON.stringify(feedback),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        feedback?: AiFeedback;
+        error?: string;
+      };
+      if (!response.ok || !body.feedback) {
+        throw new Error(body.error ?? "Could not save feedback.");
+      }
+      setMessages((current) => {
+        const updated = current.map((message) =>
+          message.id === messageId
+            ? { ...message, feedback: body.feedback }
+            : message
+        );
+        saveMessages(updated);
+        return updated;
+      });
+    },
+    []
+  );
 
   useEffect(() => {
     if (!router.isReady || mediaHandoffStartedRef.current) return;
@@ -1257,7 +1488,7 @@ const AiChat = () => {
             &gt; Qwen
           </h1>
           <p className="text-xs uppercase tracking-wide text-gray-500">
-            Local AI · session-only history
+            Local AI · 30-day redacted evaluation traces
           </p>
         </div>
         <button
@@ -1284,7 +1515,8 @@ const AiChat = () => {
                 Ask anything
               </p>
               <p className="mt-1 text-sm text-gray-500">
-                One private, session-only conversation with Qwen.
+                Browser history is session-only. Redacted prompts, answers, and
+                tool traces are retained for 30 days to improve Qwen.
               </p>
               <div className="mt-7 overflow-hidden opacity-75">
                 <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.22em] text-gray-700">
@@ -1324,6 +1556,7 @@ const AiChat = () => {
             key={message.id}
             message={message}
             onPrepareAgain={streaming ? undefined : prepareAgain}
+            onFeedback={streaming ? undefined : saveFeedback}
           />
         ))}
 

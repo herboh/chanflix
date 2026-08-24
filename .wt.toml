@@ -1,0 +1,3 @@
+primary_branch = "dev"
+shared_untracked = ["node_modules"]
+test_in_primary = true

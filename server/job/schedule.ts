@@ -1,4 +1,5 @@
 import availabilitySync from '@server/lib/availabilitySync';
+import { cleanupExpiredAiTraces } from '@server/lib/aiTraceStore';
 import downloadTracker from '@server/lib/downloadtracker';
 import ImageProxy from '@server/lib/imageproxy';
 import refreshToken from '@server/lib/refreshToken';
@@ -155,6 +156,30 @@ export const startJobs = (): void => {
   });
 
   // Run image cache cleanup every 24 hours
+  scheduledJobs.push({
+    id: 'ai-trace-cleanup',
+    name: 'AI Trace Cleanup',
+    type: 'command',
+    interval: 'hours',
+    cronSchedule: jobs['ai-trace-cleanup'].schedule,
+    job: schedule.scheduleJob(jobs['ai-trace-cleanup'].schedule, () => {
+      cleanupExpiredAiTraces()
+        .then((removed) => {
+          logger.info('Finished scheduled job: AI Trace Cleanup', {
+            label: 'Jobs',
+            removed,
+          });
+        })
+        .catch((error) => {
+          logger.error('Scheduled AI trace cleanup failed', {
+            label: 'Jobs',
+            errorMessage:
+              error instanceof Error ? error.message : 'Unknown error',
+          });
+        });
+    }),
+  });
+
   scheduledJobs.push({
     id: 'image-cache-cleanup',
     name: 'Image Cache Cleanup',

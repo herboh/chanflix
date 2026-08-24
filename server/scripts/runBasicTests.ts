@@ -36,7 +36,21 @@ import {
   trimAiChatMessagesToBudget,
   validateAiChatMessages,
 } from '@server/lib/aiChat';
-import { classifyAiToolOutcome } from '@server/lib/aiTrace';
+import {
+  classifyAiToolOutcome,
+  fingerprintAiValue,
+  redactAiValue,
+} from '@server/lib/aiTrace';
+import {
+  getAiTraceRetentionCutoff,
+  validateAiTraceFeedback,
+} from '@server/lib/aiTraceStore';
+import {
+  AI_SYSTEM_MESSAGE,
+  runAiAgent,
+  type AiRunModelConfig,
+} from '@server/lib/aiRunner';
+import { scoreAiEvalCase, type AiEvalCase } from '@server/lib/aiEval';
 import {
   AI_AGENT_TOOLS,
   aiPersonCreditMatchesRole,
@@ -291,6 +305,174 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'AI traces redact secrets and fingerprint stable schemas',
+    run: () => {
+      assert.deepEqual(
+        redactAiValue({
+          title: 'Heat',
+          userId: 12,
+          token: '0123456789abcdef0123456789abcdef',
+          nested: {
+            url: 'https://example.test/path?api_key=secret-value',
+            header: 'Bearer secret-token',
+          },
+        }),
+        {
+          title: 'Heat',
+          userId: '[REDACTED]',
+          token: '[REDACTED]',
+          nested: {
+            url: 'https://example.test/path?api_key=[REDACTED]',
+            header: 'Bearer [REDACTED]',
+          },
+        }
+      );
+      assert.equal(
+        fingerprintAiValue({ b: 2, a: 1 }),
+        fingerprintAiValue({ a: 1, b: 2 })
+      );
+    },
+  },
+  {
+    name: 'AI feedback validates owner-submitted signal shapes',
+    run: () => {
+      assert.deepEqual(validateAiTraceFeedback({ rating: 'up', reasons: [] }), {
+        rating: 'up',
+        reasons: [],
+      });
+      assert.deepEqual(
+        validateAiTraceFeedback({
+          rating: 'down',
+          reasons: ['wrong_tool', 'wrong_tool', 'other'],
+          comment: ' Needs a catalog lookup. ',
+        }),
+        {
+          rating: 'down',
+          reasons: ['wrong_tool', 'other'],
+          comment: 'Needs a catalog lookup.',
+        }
+      );
+      assert.throws(() =>
+        validateAiTraceFeedback({ rating: 'down', reasons: [] })
+      );
+      assert.throws(() =>
+        validateAiTraceFeedback({
+          rating: 'up',
+          reasons: ['wrong_tool'],
+        })
+      );
+      assert.equal(
+        getAiTraceRetentionCutoff(new Date('2026-08-24T00:00:00.000Z'), 30)
+          .toISOString(),
+        '2026-07-25T00:00:00.000Z'
+      );
+    },
+  },
+  {
+    name: 'AI runner shares the production multi-round tool trajectory',
+    run: async () => {
+      const config: AiRunModelConfig = {
+        baseUrl: 'http://model.test/v1',
+        model: 'qwen-main',
+        modelName: 'Qwen test',
+        gpu: 'test',
+        inferenceProfile: 'test',
+        contextWindowTokens: 80_000,
+        maxTokens: 2_048,
+        reasoningEffort: 'medium',
+        enableThinking: true,
+      };
+      const toolSse = [
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"lookup_media","arguments":"{\\"operation\\":\\"search\\",\\"query\\":\\"Heat\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+        'data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":12,"total_tokens":112}}\n\n',
+        'data: [DONE]\n\n',
+      ].join('');
+      const answerSse = [
+        'data: {"choices":[{"delta":{"content":"Heat is ready to watch."},"finish_reason":"stop"}]}\n\n',
+        'data: {"choices":[],"usage":{"prompt_tokens":130,"completion_tokens":8,"total_tokens":138}}\n\n',
+        'data: [DONE]\n\n',
+      ].join('');
+      let modelCalls = 0;
+      const fetchMock = async (url: string) => {
+        if (url.endsWith('/health')) return new Response('ok');
+        modelCalls += 1;
+        return new Response(modelCalls === 1 ? toolSse : answerSse, {
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      };
+      const events: string[] = [];
+      const card = {
+        kind: 'media' as const,
+        mediaType: 'movie' as const,
+        tmdbId: 949,
+        title: 'Heat',
+        year: '1995',
+        status: 'available' as const,
+        href: '/movie/949',
+      };
+      const result = await runAiAgent(
+        {
+          messages: [{ role: 'user', content: 'Is Heat ready?' }],
+          user: user(1, 'Test'),
+          config,
+          traceId: '00000000-0000-4000-8000-000000000001',
+        },
+        { emit: (event) => events.push(event) },
+        {
+          fetch: fetchMock as typeof fetch,
+          executeTool: async () => ({
+            content: JSON.stringify({
+              ok: true,
+              code: 'ok',
+              message: 'Heat is available.',
+            }),
+            cards: [card],
+          }),
+        }
+      );
+      assert.equal(modelCalls, 2);
+      assert.equal(result.answer, 'Heat is ready to watch.');
+      assert.equal(result.trace.tools[0].name, 'lookup_media');
+      assert.deepEqual(result.trace.tools[0].arguments, {
+        operation: 'search',
+        query: 'Heat',
+      });
+      assert.equal(result.trace.rounds.length, 2);
+      assert.equal(result.trace.cards[0].tmdbId, 949);
+      assert.ok(events.includes('cards'));
+      assert.ok(events.includes('done'));
+
+      const testCase: AiEvalCase = {
+        id: 'runner-test',
+        tags: ['test'],
+        messages: [{ role: 'user', content: 'Is Heat ready?' }],
+        fixtures: [],
+        expected: {
+          requiredToolGroups: [['lookup_media', 'request_media']],
+          allowedTools: ['lookup_media', 'request_media'],
+          arguments: [
+            {
+              tool: 'lookup_media',
+              contains: { operation: 'details' },
+              alternatives: [{ operation: 'search', query: 'heat' }],
+            },
+          ],
+          cards: [{ mediaType: 'movie', tmdbId: 949 }],
+          requiredClaims: ['ready'],
+          maxRounds: 2,
+          maxToolCalls: 1,
+        },
+      };
+      const scores = scoreAiEvalCase(testCase, result.trace);
+      assert.equal(scores.hardPass, 1);
+      assert.equal(scores.routing, 1);
+      assert.equal(scores.arguments, 1);
+      assert.equal(scores.grounding, 1);
+      assert.match(AI_SYSTEM_MESSAGE, /Recently added to the server/u);
+      assert.match(AI_SYSTEM_MESSAGE, /negated request/u);
+    },
+  },
+  {
     name: 'AI chat trims complete old turns to a conservative token budget',
     run: () => {
       assert.equal(estimateAiChatTokens('123456'), 2);
@@ -490,6 +672,7 @@ const tests: TestCase[] = [
         'request_media',
         'search_web',
       ]);
+      assert.ok(AI_AGENT_TOOLS.every((tool) => tool.function.strict === true));
 
       const director = {
         job: 'Director',
