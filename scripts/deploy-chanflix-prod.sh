@@ -12,6 +12,7 @@ export CHANFLIX_COMMIT_TAG
 echo "Deploying Chanflix commit ${CHANFLIX_COMMIT_TAG}"
 
 git diff --check
+yarn install --frozen-lockfile
 yarn test:unit
 yarn typecheck
 
