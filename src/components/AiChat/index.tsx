@@ -909,6 +909,9 @@ const AiChat = () => {
           merged.set(`${card.mediaType}:${card.tmdbId}`, card);
         });
         cardsRef.current = Array.from(merged.values()).slice(0, 4);
+        // Cards can add nearly a viewport of height at once. Preserve the
+        // reader's position instead of treating that insertion like text.
+        followStreamRef.current = false;
         setStreamingCards(cardsRef.current);
       }
     },
