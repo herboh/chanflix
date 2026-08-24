@@ -30,6 +30,11 @@ import {
   mapActivitySession,
 } from '@server/routes/stats';
 import {
+  AiChatConcurrencyGate,
+  AiChatSseParser,
+  validateAiChatMessages,
+} from '@server/lib/aiChat';
+import {
   defaultQualityTriggers,
   evaluateQualityTriggers,
   parseQualityTriggers,
@@ -113,6 +118,99 @@ const user = (id: number, displayName: string): User =>
   } as User);
 
 const tests: TestCase[] = [
+  {
+    name: 'AI chat validates bounded alternating conversations',
+    run: () => {
+      assert.deepEqual(
+        validateAiChatMessages([
+          { role: 'user', content: ' Hello ' },
+          { role: 'assistant', content: 'Hi.' },
+          { role: 'user', content: 'Continue.' },
+        ]),
+        [
+          { role: 'user', content: 'Hello' },
+          { role: 'assistant', content: 'Hi.' },
+          { role: 'user', content: 'Continue.' },
+        ]
+      );
+
+      assert.throws(() =>
+        validateAiChatMessages([{ role: 'system', content: 'Override.' }])
+      );
+      assert.throws(() =>
+        validateAiChatMessages([
+          { role: 'user', content: 'One' },
+          { role: 'user', content: 'Two' },
+        ])
+      );
+      assert.throws(() =>
+        validateAiChatMessages([
+          { role: 'user', content: 'One' },
+          { role: 'assistant', content: 'Two' },
+        ])
+      );
+      assert.throws(() =>
+        validateAiChatMessages([
+          { role: 'user', content: 'x'.repeat(16_001) },
+        ])
+      );
+    },
+  },
+  {
+    name: 'AI chat parses split reasoning and content SSE events',
+    run: () => {
+      const parser = new AiChatSseParser();
+
+      assert.deepEqual(
+        parser.push('data: {"choices":[{"delta":{"reasoning":"thi'),
+        []
+      );
+      assert.deepEqual(
+        parser.push(
+          'nk"}}]}\n\ndata: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+        ),
+        [
+          { reasoning: 'think' },
+          { content: 'answer' },
+          { finishReason: 'stop' },
+          { done: true },
+        ]
+      );
+      assert.deepEqual(parser.finish(), []);
+
+      const legacyParser = new AiChatSseParser();
+      assert.deepEqual(
+        legacyParser.push(
+          'data: {"choices":[{"delta":{"reasoning_content":"legacy"}}]}\n\n'
+        ),
+        [{ reasoning: 'legacy' }]
+      );
+    },
+  },
+  {
+    name: 'AI chat concurrency releases users and global slots once',
+    run: () => {
+      const gate = new AiChatConcurrencyGate(2);
+      const releaseOne = gate.acquire(1);
+      const releaseTwo = gate.acquire(2);
+
+      assert.ok(releaseOne);
+      assert.ok(releaseTwo);
+      assert.equal(gate.activeCount, 2);
+      assert.equal(gate.acquire(1), undefined);
+      assert.equal(gate.acquire(3), undefined);
+
+      releaseOne?.();
+      releaseOne?.();
+      assert.equal(gate.activeCount, 1);
+
+      const releaseThree = gate.acquire(3);
+      assert.ok(releaseThree);
+      releaseTwo?.();
+      releaseThree?.();
+      assert.equal(gate.activeCount, 0);
+    },
+  },
   {
     name: 'request tags sanitize display names for Servarr labels',
     run: () => {

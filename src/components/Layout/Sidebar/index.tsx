@@ -6,6 +6,7 @@ import {
   ChatBubbleLeftRightIcon,
   ClockIcon,
   CogIcon,
+  CpuChipIcon,
   ExclamationTriangleIcon,
   FilmIcon,
   FolderIcon,
@@ -31,6 +32,7 @@ export const menuMessages = defineMessages({
   community: "Community",
   library: "Library",
   operations: "Operations",
+  ai: "AI Chat",
 });
 
 interface SidebarProps {
@@ -55,6 +57,12 @@ const SidebarLinks: SidebarLinkProps[] = [
     messagesKey: "dashboard",
     svgIcon: <SparklesIcon className="mr-3 h-6 w-6" />,
     activeRegExp: /^\/(discover\/?)?$/,
+  },
+  {
+    href: "/ai",
+    messagesKey: "ai",
+    svgIcon: <CpuChipIcon className="mr-3 h-6 w-6" />,
+    activeRegExp: /^\/ai$/,
   },
   {
     href: "/discover/movies",
