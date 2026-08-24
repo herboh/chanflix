@@ -336,6 +336,7 @@ const tests: TestCase[] = [
       const fuzzy = resolveAiTitleMatch(cards, 'Heatt');
       assert.equal(fuzzy.match, undefined);
       assert.equal(fuzzy.ambiguous, false);
+      assert.equal(fuzzy.candidates[0].title, 'Heat');
     },
   },
   {

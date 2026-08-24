@@ -375,7 +375,7 @@ export const AI_AGENT_TOOLS = [
   ),
   tool(
     "prepare_request",
-    "Prepare a request only when an exact TMDB ID is already known. Usually use prepare_title_request. The user must confirm the returned button.",
+    "Prepare a confirmation when an exact movie or series and its verified TMDB ID are already present in the current context. Never invent the TMDB ID; otherwise use prepare_title_request.",
     {
       media_type: { type: "string", enum: ["movie", "tv"] },
       tmdb_id: { type: "integer", minimum: 1 },
@@ -779,8 +779,8 @@ const executeLookupPerson = async (raw: unknown): Promise<AiToolResult> => {
       ambiguous: exact.length > 1,
       reason:
         exact.length > 1
-          ? "Multiple people have that exact name. Ask the user which one."
-          : "No exact person-name match was found. Ask the user to clarify.",
+          ? "Multiple people have that exact name; a specific candidate is required."
+          : "No exact person-name match was found; clarification is required.",
       candidates: candidates.map((person) => ({
         personId: person.id,
         name: person.name,
@@ -1200,14 +1200,22 @@ const executePrepareTitleRequest = async (
   });
 
   if (!resolution.match) {
+    const candidates = summarizeCards(resolution.candidates);
     return {
       content: JSON.stringify({
         prepared: false,
         ambiguous: resolution.ambiguous,
+        requiresClarification: true,
         reason: resolution.ambiguous
-          ? "Multiple exact titles match. Ask the user to choose a year or type."
-          : "No exact title match was found. Ask the user to clarify; do not request a fuzzy match.",
-        candidates: summarizeCards(resolution.candidates),
+          ? "Multiple exact titles matched; a year or media type is required."
+          : resolution.candidates.length === 1
+          ? "No exact title matched, but one likely candidate was found."
+          : "No exact title matched; a specific candidate is required.",
+        suggestedMatch:
+          !resolution.ambiguous && candidates.length === 1
+            ? candidates[0]
+            : undefined,
+        candidates,
       }),
       cards: resolution.candidates,
     };
