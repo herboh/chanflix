@@ -58,10 +58,6 @@ interface MediaCardData {
   request?: { token: string; label: string; expiresAt: string; note: string };
 }
 
-interface MediaRatingsResponse {
-  ratings: Record<string, RatingResponse | RTRating | null>;
-}
-
 interface StreamPayload {
   phase?: "connecting" | "thinking" | "answering";
   delta?: string;
@@ -334,11 +330,9 @@ const RatingChip = ({
 
 const MediaCard = ({
   card,
-  ratings,
   onPrepareAgain,
 }: {
   card: MediaCardData;
-  ratings?: RatingResponse | RTRating | null;
   onPrepareAgain?: (card: MediaCardData) => void;
 }) => {
   const [requestState, setRequestState] = useState<
@@ -346,6 +340,11 @@ const MediaCard = ({
   >("idle");
   const [requestMessage, setRequestMessage] = useState("");
   const [requestExpired, setRequestExpired] = useState(false);
+  const ratingsEndpoint =
+    card.mediaType === "movie"
+      ? `/api/v1/movie/${card.tmdbId}/ratingscombined`
+      : `/api/v1/tv/${card.tmdbId}/ratings`;
+  const { data: ratings } = useSWR<RatingResponse | RTRating>(ratingsEndpoint);
   const rtRating =
     card.mediaType === "movie"
       ? (ratings as RatingResponse | undefined)?.rt
@@ -581,6 +580,16 @@ const MediaCard = ({
             {requestMessage}
           </p>
         )}
+        <Link href={card.href}>
+          <a className="relative z-20 mt-auto block border border-gray-700 px-3 py-2 text-center text-xs font-bold uppercase tracking-wide text-gray-300 transition hover:border-indigo-400 hover:bg-indigo-900 hover:text-white">
+            {effectiveStatus === "available" || effectiveStatus === "partial"
+              ? "Open to watch"
+              : effectiveStatus === "pending" ||
+                effectiveStatus === "processing"
+              ? "View status"
+              : "Request"}
+          </a>
+        </Link>
       </div>
     </article>
   );
@@ -593,22 +602,12 @@ const MediaCards = ({
   cards?: MediaCardData[];
   onPrepareAgain?: (card: MediaCardData) => void;
 }) => {
-  const ratingItems = cards
-    ?.slice(0, 4)
-    .map((card) => `${card.mediaType}:${card.tmdbId}`)
-    .join(",");
-  const ratingsEndpoint = ratingItems
-    ? `/api/v1/chat/ratings?items=${encodeURIComponent(ratingItems)}`
-    : null;
-  const { data } = useSWR<MediaRatingsResponse>(ratingsEndpoint);
-
   return cards?.length ? (
     <div className="mt-4 grid max-w-3xl gap-4 sm:grid-cols-2">
       {cards.map((card) => (
         <MediaCard
           key={`${card.mediaType}:${card.tmdbId}:${card.request?.token ?? ""}`}
           card={card}
-          ratings={data?.ratings[`${card.mediaType}:${card.tmdbId}`]}
           onPrepareAgain={onPrepareAgain}
         />
       ))}
