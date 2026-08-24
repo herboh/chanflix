@@ -37,6 +37,8 @@ import {
   validateAiChatMessages,
 } from '@server/lib/aiChat';
 import {
+  AI_AGENT_TOOLS,
+  aiPersonCreditMatchesRole,
   consumeRequestConfirmation,
   createRequestConfirmation,
   evaluateAiRequestPolicy,
@@ -272,6 +274,33 @@ const tests: TestCase[] = [
         ranked.map((item) => item.title),
         ['Heat', 'Heatwave', 'Other']
       );
+    },
+  },
+  {
+    name: 'AI agent exposes bounded person and Plex lookup tools',
+    run: () => {
+      const toolNames = AI_AGENT_TOOLS.map((tool) => tool.function.name);
+      assert.ok(toolNames.includes('search_people'));
+      assert.ok(toolNames.includes('get_person_filmography'));
+      assert.ok(toolNames.includes('get_plex_library_summary'));
+      assert.ok(toolNames.includes('display_titles'));
+
+      const director = {
+        job: 'Director',
+        department: 'Directing',
+      } as unknown as Parameters<typeof aiPersonCreditMatchesRole>[0];
+      const writer = {
+        job: 'Screenplay',
+        department: 'Writing',
+      } as unknown as Parameters<typeof aiPersonCreditMatchesRole>[0];
+      const actor = {
+        character: 'Lead',
+      } as unknown as Parameters<typeof aiPersonCreditMatchesRole>[0];
+      assert.equal(aiPersonCreditMatchesRole(director, 'directing'), true);
+      assert.equal(aiPersonCreditMatchesRole(director, 'writing'), false);
+      assert.equal(aiPersonCreditMatchesRole(writer, 'writing'), true);
+      assert.equal(aiPersonCreditMatchesRole(actor, 'acting'), true);
+      assert.equal(aiPersonCreditMatchesRole(actor, 'crew'), false);
     },
   },
   {

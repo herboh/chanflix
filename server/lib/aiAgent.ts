@@ -1,4 +1,9 @@
 import TheMovieDb from "@server/api/themoviedb";
+import type {
+  TmdbPersonCreditCast,
+  TmdbPersonCreditCrew,
+  TmdbPersonResult,
+} from "@server/api/themoviedb/interfaces";
 import {
   MediaRequestStatus,
   MediaStatus,
@@ -37,6 +42,7 @@ export interface AiMediaCard {
   voteAverage?: number;
   voteCount?: number;
   popularity?: number;
+  imdbId?: string;
   status: "available" | "partial" | "processing" | "pending" | "unknown";
   href: string;
   request?: {
@@ -153,6 +159,34 @@ const titleSchema = z.object({
   media_type: mediaTypeSchema,
   tmdb_id: z.number().int().positive(),
 });
+const peopleSearchSchema = z.object({
+  query: z.string().trim().min(1).max(120),
+  limit: z.number().int().min(1).max(3).default(3),
+});
+const personCreditsSchema = z.object({
+  person_id: z.number().int().positive(),
+  role: z
+    .enum(["acting", "directing", "writing", "crew", "all"])
+    .default("all"),
+  media_type: z.enum(["movie", "tv", "either"]).default("either"),
+  available_only: z.boolean().default(false),
+  limit: z.number().int().min(1).max(5).default(5),
+});
+const plexSummarySchema = z.object({
+  media_type: z.enum(["movie", "tv", "either"]).default("either"),
+  include_recent: z.boolean().default(true),
+});
+const displayTitlesSchema = z.object({
+  titles: z
+    .array(
+      z.object({
+        media_type: mediaTypeSchema,
+        tmdb_id: z.number().int().positive(),
+      })
+    )
+    .min(1)
+    .max(5),
+});
 const availableSchema = z.object({
   media_type: z.enum(["movie", "tv", "either"]).default("either"),
   genre: z.string().trim().max(60).optional(),
@@ -203,6 +237,63 @@ export const AI_AGENT_TOOLS = [
       tmdb_id: { type: "integer", minimum: 1 },
     },
     ["media_type", "tmdb_id"]
+  ),
+  tool(
+    "search_people",
+    "Search cached TMDB identity data for an actor, director, writer, or other film person. Use whenever a user names or describes a movie person and their identity is not already confirmed.",
+    {
+      query: { type: "string", description: "Person name." },
+      limit: { type: "integer", minimum: 1, maximum: 3 },
+    },
+    ["query"]
+  ),
+  tool(
+    "get_person_filmography",
+    "Get verified person details and a small ranked filmography, cross-checked against the local Plex library. Use for films starring, directed by, written by, or otherwise credited to a person.",
+    {
+      person_id: { type: "integer", minimum: 1 },
+      role: {
+        type: "string",
+        enum: ["acting", "directing", "writing", "crew", "all"],
+      },
+      media_type: { type: "string", enum: ["movie", "tv", "either"] },
+      available_only: {
+        type: "boolean",
+        description:
+          "True when the user asks what is available, on Plex, or on this server.",
+      },
+      limit: { type: "integer", minimum: 1, maximum: 5 },
+    },
+    ["person_id"]
+  ),
+  tool(
+    "get_plex_library_summary",
+    "Read the local Chanflix database for Plex-synced movie and series counts and a few recently added titles. Use whenever the user asks about this server, Plex, the library, or what is on here in general.",
+    {
+      media_type: { type: "string", enum: ["movie", "tv", "either"] },
+      include_recent: { type: "boolean" },
+    }
+  ),
+  tool(
+    "display_titles",
+    "Render the canonical Chanflix cards for one to five exact titles, including poster, year, rating, availability, and link. Use before the final answer whenever you name a concrete movie/series set and no prior tool in this request already returned cards for those titles.",
+    {
+      titles: {
+        type: "array",
+        minItems: 1,
+        maxItems: 5,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            media_type: { type: "string", enum: ["movie", "tv"] },
+            tmdb_id: { type: "integer", minimum: 1 },
+          },
+          required: ["media_type", "tmdb_id"],
+        },
+      },
+    },
+    ["titles"]
   ),
   tool(
     "list_available_media",
@@ -285,6 +376,7 @@ const cardFromResult = (result: {
   voteAverage?: number;
   voteCount?: number;
   popularity?: number;
+  imdbId?: string;
   genres?: { name: string }[];
   runtime?: number;
   episodeRunTime?: number[];
@@ -307,6 +399,7 @@ const cardFromResult = (result: {
     voteAverage: result.voteAverage,
     voteCount: result.voteCount,
     popularity: result.popularity,
+    imdbId: result.imdbId,
     status: statusName(result.mediaInfo?.status),
     href: `/${result.mediaType}/${result.id}`,
   };
@@ -321,6 +414,7 @@ const summarizeCards = (cards: AiMediaCard[]) =>
     rating: card.voteAverage,
     voteCount: card.voteCount,
     popularity: card.popularity,
+    imdbId: card.imdbId,
     genres: card.genres,
     runtimeMinutes: card.runtimeMinutes,
     status: card.status,
@@ -382,7 +476,286 @@ const getDetailsCard = async (
     ...details,
     mediaType: "tv",
     firstAirDate: details.firstAirDate,
+    imdbId: details.externalIds.imdbId,
   }) as AiMediaCard;
+};
+
+const summarizeKnownFor = (person: TmdbPersonResult, relatedMedia: Media[]) =>
+  person.known_for.slice(0, 3).map((credit) => {
+    const media = relatedMedia.find(
+      (candidate) =>
+        candidate.tmdbId === credit.id &&
+        candidate.mediaType ===
+          (credit.media_type === "movie" ? MediaType.MOVIE : MediaType.TV)
+    );
+    return {
+      mediaType: credit.media_type,
+      tmdbId: credit.id,
+      title: credit.media_type === "movie" ? credit.title : credit.name,
+      year: (credit.media_type === "movie"
+        ? credit.release_date
+        : credit.first_air_date
+      )?.slice(0, 4),
+      status: statusName(media?.status),
+    };
+  });
+
+const executeSearchPeople = async (raw: unknown): Promise<AiToolResult> => {
+  const args = peopleSearchSchema.parse(raw);
+  const response = await new TheMovieDb().searchMulti({
+    query: args.query,
+    page: 1,
+  });
+  const people = response.results
+    .filter(
+      (result): result is TmdbPersonResult =>
+        result.media_type === "person" && !result.adult
+    )
+    .sort((left, right) => right.popularity - left.popularity)
+    .slice(0, args.limit);
+  const relatedMedia = await Media.getRelatedMedia(
+    people.flatMap((person) => person.known_for.map((credit) => credit.id))
+  );
+
+  return {
+    content: JSON.stringify({
+      source: "TMDB identity search plus local Chanflix availability",
+      results: people.map((person) => ({
+        personId: person.id,
+        name: person.name,
+        popularity: person.popularity,
+        knownFor: summarizeKnownFor(person, relatedMedia),
+      })),
+    }),
+  };
+};
+
+type PersonCredit = TmdbPersonCreditCast | TmdbPersonCreditCrew;
+type PersonRole = z.infer<typeof personCreditsSchema>["role"];
+
+export const aiPersonCreditMatchesRole = (
+  credit: PersonCredit,
+  role: PersonRole
+): boolean => {
+  if (role === "all") return true;
+  if (role === "acting") return "character" in credit;
+  if ("character" in credit) return false;
+  if (role === "directing") return credit.job?.toLowerCase() === "director";
+  if (role === "writing") {
+    const contribution = `${credit.department ?? ""} ${credit.job ?? ""}`;
+    return /writing|writer|screenplay|story|novel/i.test(contribution);
+  }
+  return true;
+};
+
+const executePersonFilmography = async (
+  raw: unknown
+): Promise<AiToolResult> => {
+  const args = personCreditsSchema.parse(raw);
+  const tmdb = new TheMovieDb();
+  const [person, combined] = await Promise.all([
+    tmdb.getPerson({ personId: args.person_id }),
+    tmdb.getPersonCombinedCredits({ personId: args.person_id }),
+  ]);
+  const selected: Array<{
+    credit: PersonCredit;
+    contribution: string;
+  }> = [];
+  if (args.role === "acting" || args.role === "all") {
+    selected.push(
+      ...combined.cast.map((credit) => ({
+        credit,
+        contribution: credit.character
+          ? `Actor as ${credit.character}`
+          : "Actor",
+      }))
+    );
+  }
+  if (args.role !== "acting") {
+    selected.push(
+      ...combined.crew
+        .filter((credit) => aiPersonCreditMatchesRole(credit, args.role))
+        .map((credit) => ({
+          credit,
+          contribution: credit.job || credit.department || "Crew",
+        }))
+    );
+  }
+
+  const deduped = new Map<string, (typeof selected)[number]>();
+  for (const item of selected) {
+    if (
+      item.credit.adult ||
+      (item.credit.media_type !== "movie" && item.credit.media_type !== "tv") ||
+      (args.media_type !== "either" &&
+        item.credit.media_type !== args.media_type)
+    ) {
+      continue;
+    }
+    const key = `${item.credit.media_type}:${item.credit.id}`;
+    if (!deduped.has(key)) deduped.set(key, item);
+  }
+
+  const credits = [...deduped.values()];
+  const relatedMedia = await Media.getRelatedMedia(
+    credits.map((item) => item.credit.id)
+  );
+  const entries = credits
+    .map((item) => {
+      const media = relatedMedia.find(
+        (candidate) =>
+          candidate.tmdbId === item.credit.id &&
+          candidate.mediaType ===
+            (item.credit.media_type === "movie"
+              ? MediaType.MOVIE
+              : MediaType.TV)
+      );
+      const card = cardFromResult({
+        id: item.credit.id,
+        mediaType: item.credit.media_type ?? "",
+        title: item.credit.title,
+        name: item.credit.name,
+        releaseDate: item.credit.release_date,
+        firstAirDate: item.credit.first_air_date,
+        overview: item.credit.overview,
+        posterPath: item.credit.poster_path,
+        voteAverage: item.credit.vote_average,
+        voteCount: item.credit.vote_count,
+        popularity: item.credit.popularity,
+        mediaInfo: media,
+      });
+      return card ? { card, contribution: item.contribution } : undefined;
+    })
+    .filter(
+      (entry): entry is { card: AiMediaCard; contribution: string } => !!entry
+    )
+    .filter(
+      (entry) =>
+        !args.available_only ||
+        entry.card.status === "available" ||
+        entry.card.status === "partial"
+    )
+    .sort(
+      (left, right) =>
+        Number(
+          right.card.status === "available" || right.card.status === "partial"
+        ) -
+          Number(
+            left.card.status === "available" || left.card.status === "partial"
+          ) ||
+        (right.card.voteCount ?? 0) - (left.card.voteCount ?? 0) ||
+        (right.card.popularity ?? 0) - (left.card.popularity ?? 0)
+    )
+    .slice(0, args.limit);
+  const cards = entries.map((entry) => entry.card);
+
+  return {
+    content: JSON.stringify({
+      source: "Cached TMDB person data cross-checked with local Chanflix media",
+      person: {
+        personId: person.id,
+        imdbId: person.imdb_id,
+        name: person.name,
+        knownForDepartment: person.known_for_department,
+        birthday: person.birthday,
+        deathday: person.deathday,
+        placeOfBirth: person.place_of_birth,
+        biography: cleanText(person.biography, 900),
+      },
+      role: args.role,
+      availableOnly: args.available_only,
+      notExhaustive: true,
+      results: entries.map((entry) => ({
+        ...summarizeCards([entry.card])[0],
+        contribution: entry.contribution,
+      })),
+    }),
+    cards,
+  };
+};
+
+const executePlexSummary = async (raw: unknown): Promise<AiToolResult> => {
+  const args = plexSummarySchema.parse(raw);
+  const repository = getRepository(Media);
+  const query = repository
+    .createQueryBuilder("media")
+    .select("media.mediaType", "mediaType")
+    .addSelect("media.status", "status")
+    .addSelect("COUNT(*)", "count")
+    .groupBy("media.mediaType")
+    .addGroupBy("media.status");
+  if (args.media_type !== "either") {
+    query.where("media.mediaType = :mediaType", {
+      mediaType: args.media_type === "movie" ? MediaType.MOVIE : MediaType.TV,
+    });
+  }
+  const rows = await query.getRawMany<{
+    mediaType: MediaType;
+    status: number;
+    count: string;
+  }>();
+  const counts = rows.map((row) => ({
+    mediaType: row.mediaType === MediaType.MOVIE ? "movie" : "tv",
+    status: statusName(Number(row.status) as MediaStatus),
+    count: Number(row.count),
+  }));
+  const recent = args.include_recent
+    ? await repository.find({
+        where: {
+          ...(args.media_type === "either"
+            ? {}
+            : {
+                mediaType:
+                  args.media_type === "movie" ? MediaType.MOVIE : MediaType.TV,
+              }),
+          status: In([MediaStatus.AVAILABLE, MediaStatus.PARTIALLY_AVAILABLE]),
+        },
+        order: { mediaAddedAt: "DESC", updatedAt: "DESC" },
+        take: 3,
+      })
+    : [];
+  const cards = (
+    await Promise.all(
+      recent.map((media) =>
+        getDetailsCard(
+          media.mediaType === MediaType.MOVIE ? "movie" : "tv",
+          media.tmdbId
+        ).catch(() => undefined)
+      )
+    )
+  ).filter((card): card is AiMediaCard => !!card);
+
+  return {
+    content: JSON.stringify({
+      source: "Local Chanflix database synchronized from Plex and Servarr",
+      counts,
+      recent: summarizeCards(cards),
+    }),
+    cards,
+  };
+};
+
+const executeDisplayTitles = async (raw: unknown): Promise<AiToolResult> => {
+  const args = displayTitlesSchema.parse(raw);
+  const unique = new Map(
+    args.titles.map((title) => [`${title.media_type}:${title.tmdb_id}`, title])
+  );
+  const cards = (
+    await Promise.all(
+      [...unique.values()].map((title) =>
+        getDetailsCard(title.media_type, title.tmdb_id).catch(() => undefined)
+      )
+    )
+  ).filter((card): card is AiMediaCard => !!card);
+
+  return {
+    content: JSON.stringify({
+      cardsDisplayed: true,
+      results: summarizeCards(cards),
+      missingCount: unique.size - cards.length,
+    }),
+    cards,
+  };
 };
 
 const executeSearch = async (raw: unknown): Promise<AiToolResult> => {
@@ -405,8 +778,69 @@ const executeSearch = async (raw: unknown): Promise<AiToolResult> => {
 const executeGetTitle = async (raw: unknown): Promise<AiToolResult> => {
   const args = titleSchema.parse(raw);
   const card = await getDetailsCard(args.media_type, args.tmdb_id);
+  const tmdb = new TheMovieDb();
+  let credits: Record<string, unknown>;
+  if (args.media_type === "movie") {
+    const details = await tmdb.getMovie({ movieId: args.tmdb_id });
+    credits = {
+      directors: details.credits.crew
+        .filter((person) => person.job.toLowerCase() === "director")
+        .slice(0, 5)
+        .map((person) => ({ personId: person.id, name: person.name })),
+      writers: details.credits.crew
+        .filter((person) =>
+          /writing|writer|screenplay|story|novel/i.test(
+            `${person.department} ${person.job}`
+          )
+        )
+        .slice(0, 6)
+        .map((person) => ({
+          personId: person.id,
+          name: person.name,
+          job: person.job,
+        })),
+      cast: details.credits.cast.slice(0, 8).map((person) => ({
+        personId: person.id,
+        name: person.name,
+        character: person.character,
+      })),
+    };
+  } else {
+    const details = await tmdb.getTvShow({ tvId: args.tmdb_id });
+    credits = {
+      creators: details.created_by.slice(0, 5).map((person) => ({
+        personId: person.id,
+        name: person.name,
+      })),
+      directors: details.credits.crew
+        .filter((person) => person.job.toLowerCase() === "director")
+        .slice(0, 5)
+        .map((person) => ({ personId: person.id, name: person.name })),
+      writers: details.credits.crew
+        .filter((person) =>
+          /writing|writer|screenplay|story|novel/i.test(
+            `${person.department} ${person.job}`
+          )
+        )
+        .slice(0, 6)
+        .map((person) => ({
+          personId: person.id,
+          name: person.name,
+          job: person.job,
+        })),
+      cast: details.aggregate_credits.cast.slice(0, 8).map((person) => ({
+        personId: person.id,
+        name: person.name,
+        roles: person.roles.slice(0, 3).map((role) => role.character),
+      })),
+    };
+  }
   return {
-    content: JSON.stringify({ result: summarizeCards([card])[0] }),
+    content: JSON.stringify({
+      result: summarizeCards([card])[0],
+      credits,
+      cardDisplayed: true,
+    }),
     cards: [card],
   };
 };
@@ -661,6 +1095,14 @@ export const executeAiTool = async (
         return await executeSearch(raw);
       case "get_title":
         return await executeGetTitle(raw);
+      case "search_people":
+        return await executeSearchPeople(raw);
+      case "get_person_filmography":
+        return await executePersonFilmography(raw);
+      case "get_plex_library_summary":
+        return await executePlexSummary(raw);
+      case "display_titles":
+        return await executeDisplayTitles(raw);
       case "list_available_media":
         return await executeAvailable(raw);
       case "find_something_to_watch": {
