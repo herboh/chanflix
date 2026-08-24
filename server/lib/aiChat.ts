@@ -1,6 +1,8 @@
 export const AI_CHAT_MAX_MESSAGES = 32;
 export const AI_CHAT_MAX_MESSAGE_CHARS = 16_000;
 export const AI_CHAT_MAX_TOTAL_CHARS = 64_000;
+export const AI_CHAT_DEFAULT_CONTEXT_TOKENS = 80_000;
+export const AI_CHAT_OUTPUT_RESERVE_TOKENS = 2_048;
 
 export type AiChatRole = "user" | "assistant";
 
@@ -15,6 +17,10 @@ export interface AiChatUpstreamEvent {
   finishReason?: string;
   done?: boolean;
   error?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+  };
   toolCall?: {
     index: number;
     id?: string;
@@ -22,6 +28,33 @@ export interface AiChatUpstreamEvent {
     arguments?: string;
   };
 }
+
+export const estimateAiChatTokens = (value: string): number =>
+  Math.ceil(value.length / 3);
+
+export const trimAiChatMessagesToBudget = (
+  messages: AiChatMessage[],
+  fixedPayload: unknown,
+  maxInputTokens: number
+): {
+  messages: AiChatMessage[];
+  droppedMessages: number;
+  estimatedTokens: number;
+} => {
+  const kept = [...messages];
+  const estimate = () =>
+    estimateAiChatTokens(JSON.stringify({ fixedPayload, messages: kept }));
+
+  while (kept.length > 1 && estimate() > maxInputTokens) {
+    kept.splice(0, Math.min(2, kept.length - 1));
+  }
+
+  return {
+    messages: kept,
+    droppedMessages: messages.length - kept.length,
+    estimatedTokens: estimate(),
+  };
+};
 
 export class AiChatValidationError extends Error {
   public readonly status = 400;
@@ -132,13 +165,29 @@ const parseUpstreamData = (data: string): AiChatUpstreamEvent[] => {
     return [{ error: "The model could not complete this request." }];
   }
 
+  const usage =
+    payload.usage && typeof payload.usage === "object"
+      ? (payload.usage as Record<string, unknown>)
+      : undefined;
+  const usageEvent =
+    usage &&
+    typeof usage.prompt_tokens === "number" &&
+    typeof usage.completion_tokens === "number"
+      ? {
+          usage: {
+            promptTokens: usage.prompt_tokens,
+            completionTokens: usage.completion_tokens,
+          },
+        }
+      : undefined;
+
   const choices = payload.choices;
   if (
     !Array.isArray(choices) ||
     !choices[0] ||
     typeof choices[0] !== "object"
   ) {
-    return [];
+    return usageEvent ? [usageEvent] : [];
   }
 
   const choice = choices[0] as Record<string, unknown>;
@@ -184,6 +233,7 @@ const parseUpstreamData = (data: string): AiChatUpstreamEvent[] => {
   if (typeof choice.finish_reason === "string" && choice.finish_reason) {
     events.push({ finishReason: choice.finish_reason });
   }
+  if (usageEvent) events.push(usageEvent);
 
   return events;
 };

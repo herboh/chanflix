@@ -41,10 +41,31 @@ interface StreamPayload {
   code?: string;
   message?: string;
   cards?: MediaCardData[];
+  model?: string;
+  modelName?: string;
+  gpu?: string;
+  contextWindowTokens?: number;
+  contextUsedPercent?: number;
+  tokensPerSecond?: number;
+}
+
+interface ModelInfo {
+  model: string;
+  modelName: string;
+  gpu: string;
+  contextWindowTokens: number;
+  contextUsedPercent?: number;
+  tokensPerSecond?: number;
 }
 
 const STORAGE_KEY = "chanflix.ai.chat.v1";
 const MAX_MESSAGE_CHARS = 16_000;
+const DEFAULT_MODEL_INFO: ModelInfo = {
+  model: "qwen-main",
+  modelName: "gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090",
+  gpu: "NVIDIA RTX 5090",
+  contextWindowTokens: 80_000,
+};
 
 const createId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -92,7 +113,7 @@ const restoreMessages = (): ChatMessage[] => {
                   card.tmdbId > 0 &&
                   typeof card.title === "string"
               )
-              .slice(0, 8)
+              .slice(0, 5)
               .map((card) => ({
                 ...card,
                 href: `/${card.mediaType}/${card.tmdbId}`,
@@ -307,7 +328,10 @@ const AiChat = () => {
   );
   const [waking, setWaking] = useState(false);
   const [error, setError] = useState("");
+  const [contextNotice, setContextNotice] = useState("");
+  const [modelInfo, setModelInfo] = useState<ModelInfo>(DEFAULT_MODEL_INFO);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const reasoningRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const controllerRef = useRef<AbortController>();
   const followStreamRef = useRef(true);
@@ -318,6 +342,8 @@ const AiChat = () => {
   const frameRef = useRef<number>();
   const hasAnswerRef = useRef(false);
   const cardsRef = useRef<MediaCardData[]>([]);
+  const blockedByFailedTurn =
+    !streaming && messages[messages.length - 1]?.role === "user";
 
   useEffect(() => {
     setMessages(restoreMessages());
@@ -360,10 +386,74 @@ const AiChat = () => {
     requestAnimationFrame(scrollToBottom);
   }, [messages, reasoning, streamingAnswer, error, scrollToBottom]);
 
+  useEffect(() => {
+    if (reasoningRef.current) {
+      reasoningRef.current.scrollTop = reasoningRef.current.scrollHeight;
+    }
+  }, [reasoning]);
+
+  useEffect(() => {
+    if (!streaming && !blockedByFailedTurn) {
+      requestAnimationFrame(() =>
+        composerRef.current?.focus({ preventScroll: true })
+      );
+    }
+  }, [blockedByFailedTurn, streaming]);
+
+  useEffect(() => {
+    const focusComposer = (event: KeyboardEvent) => {
+      if (
+        streaming ||
+        blockedByFailedTurn ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target?.isContentEditable ||
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLButtonElement;
+      if (!isEditable && (event.key === "/" || event.key === "Enter")) {
+        event.preventDefault();
+        composerRef.current?.focus({ preventScroll: true });
+      }
+    };
+    window.addEventListener("keydown", focusComposer);
+    return () => window.removeEventListener("keydown", focusComposer);
+  }, [blockedByFailedTurn, streaming]);
+
   const processEvent = useCallback(
     (eventName: string, payload: StreamPayload) => {
       if (eventName === "status" && payload.phase) {
         setPhase(payload.phase);
+        return;
+      }
+
+      if (
+        eventName === "meta" &&
+        payload.model &&
+        payload.modelName &&
+        payload.gpu &&
+        typeof payload.contextWindowTokens === "number"
+      ) {
+        setModelInfo({
+          model: payload.model,
+          modelName: payload.modelName,
+          gpu: payload.gpu,
+          contextWindowTokens: payload.contextWindowTokens,
+          contextUsedPercent: payload.contextUsedPercent,
+          tokensPerSecond: payload.tokensPerSecond,
+        });
+        return;
+      }
+
+      if (eventName === "context" && payload.message) {
+        setContextNotice(payload.message);
         return;
       }
 
@@ -405,7 +495,7 @@ const AiChat = () => {
         cards.forEach((card) => {
           merged.set(`${card.mediaType}:${card.tmdbId}`, card);
         });
-        cardsRef.current = Array.from(merged.values()).slice(0, 8);
+        cardsRef.current = Array.from(merged.values()).slice(0, 5);
         setStreamingCards(cardsRef.current);
       }
     },
@@ -427,6 +517,7 @@ const AiChat = () => {
       setStreamingCards([]);
       setReasoning("");
       setError("");
+      setContextNotice("");
       setPhase("connecting");
       setWaking(false);
 
@@ -594,6 +685,7 @@ const AiChat = () => {
     setMessages([]);
     setDraft("");
     setError("");
+    setContextNotice("");
     setReasoning("");
     setStreamingAnswer("");
     setStreamingCards([]);
@@ -616,9 +708,6 @@ const AiChat = () => {
       : waking
       ? "Waking Qwen…"
       : "Connecting…";
-  const blockedByFailedTurn =
-    !streaming && messages[messages.length - 1]?.role === "user";
-
   return (
     <div className="mx-auto flex h-[calc(100vh-10rem)] max-w-5xl flex-col sm:h-[calc(100vh-7rem)]">
       <header className="flex items-center justify-between border-b-2 border-gray-700 py-3">
@@ -664,6 +753,10 @@ const AiChat = () => {
           <Message key={message.id} message={message} />
         ))}
 
+        {contextNotice && (
+          <p className="max-w-3xl text-xs text-gray-500">{contextNotice}</p>
+        )}
+
         {streaming && (
           <article className="max-w-3xl border-l-2 border-indigo-500 bg-gray-900 px-4 py-3">
             {!streamingAnswer && (
@@ -672,7 +765,10 @@ const AiChat = () => {
               </div>
             )}
             {reasoning && !streamingAnswer && (
-              <div className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-sm text-gray-500">
+              <div
+                ref={reasoningRef}
+                className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-sm text-gray-500"
+              >
                 {reasoning}
                 <span className="ml-1 animate-pulse text-indigo-400">_</span>
               </div>
@@ -708,6 +804,7 @@ const AiChat = () => {
         <div className="flex items-end gap-2">
           <textarea
             ref={composerRef}
+            autoFocus
             value={draft}
             maxLength={MAX_MESSAGE_CHARS}
             rows={1}
@@ -755,9 +852,18 @@ const AiChat = () => {
           )}
         </div>
       </form>
-      <p className="py-2 text-center text-[10px] uppercase tracking-wide text-gray-600">
-        Enter to send · Shift+Enter for newline
-      </p>
+      <div className="space-y-1 py-2 text-center text-[10px] uppercase tracking-wide text-gray-600">
+        <p>/ or Enter to focus · Enter to send · Shift+Enter for newline</p>
+        <p className="normal-case tracking-normal" title={modelInfo.modelName}>
+          {modelInfo.modelName} · {modelInfo.gpu}
+          {typeof modelInfo.tokensPerSecond === "number"
+            ? ` · ${modelInfo.tokensPerSecond.toFixed(1)} tok/s`
+            : " · tok/s —"}
+          {typeof modelInfo.contextUsedPercent === "number"
+            ? ` · ${modelInfo.contextUsedPercent.toFixed(1)}% context`
+            : " · context —"}
+        </p>
+      </div>
     </div>
   );
 };

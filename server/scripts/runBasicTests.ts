@@ -32,12 +32,15 @@ import {
 import {
   AiChatConcurrencyGate,
   AiChatSseParser,
+  estimateAiChatTokens,
+  trimAiChatMessagesToBudget,
   validateAiChatMessages,
 } from '@server/lib/aiChat';
 import {
   consumeRequestConfirmation,
   createRequestConfirmation,
   evaluateAiRequestPolicy,
+  rankAiMediaCards,
 } from '@server/lib/aiAgent';
 import {
   defaultQualityTriggers,
@@ -215,6 +218,59 @@ const tests: TestCase[] = [
           { toolCall: { index: 0, arguments: '"Heat"}' } },
           { finishReason: 'tool_calls' },
         ]
+      );
+    },
+  },
+  {
+    name: 'AI chat parses streamed token usage',
+    run: () => {
+      const parser = new AiChatSseParser();
+      assert.deepEqual(
+        parser.push(
+          'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150}}\n\n'
+        ),
+        [{ usage: { promptTokens: 120, completionTokens: 30 } }]
+      );
+    },
+  },
+  {
+    name: 'AI chat trims complete old turns to a conservative token budget',
+    run: () => {
+      assert.equal(estimateAiChatTokens('123456'), 2);
+      const messages = [
+        { role: 'user' as const, content: 'a'.repeat(120) },
+        { role: 'assistant' as const, content: 'b'.repeat(120) },
+        { role: 'user' as const, content: 'latest' },
+      ];
+      const fitted = trimAiChatMessagesToBudget(
+        messages,
+        { system: 'short' },
+        30
+      );
+      assert.deepEqual(fitted.messages, [messages[2]]);
+      assert.equal(fitted.droppedMessages, 2);
+      assert.ok(fitted.estimatedTokens <= 30);
+    },
+  },
+  {
+    name: 'AI media ranking prefers exact titles then popular results',
+    run: () => {
+      const card = (title: string, voteCount: number) => ({
+        kind: 'media' as const,
+        mediaType: 'movie' as const,
+        tmdbId: voteCount,
+        title,
+        voteCount,
+        status: 'unknown' as const,
+        href: `/movie/${voteCount}`,
+      });
+      const ranked = rankAiMediaCards(
+        [card('Heatwave', 20_000), card('Heat', 1_000), card('Other', 5_000)],
+        'heat'
+      );
+      assert.deepEqual(
+        ranked.map((item) => item.title),
+        ['Heat', 'Heatwave', 'Other']
       );
     },
   },

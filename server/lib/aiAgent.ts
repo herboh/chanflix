@@ -19,7 +19,7 @@ import { In } from "typeorm";
 import { z } from "zod";
 
 export const AI_AGENT_MAX_TOOL_ROUNDS = 4;
-export const AI_AGENT_MAX_CARDS = 8;
+export const AI_AGENT_MAX_CARDS = 5;
 export const AI_AGENT_MAX_TOOL_CALLS = 6;
 
 export type AiMediaType = "movie" | "tv";
@@ -36,6 +36,7 @@ export interface AiMediaCard {
   runtimeMinutes?: number;
   voteAverage?: number;
   voteCount?: number;
+  popularity?: number;
   status: "available" | "partial" | "processing" | "pending" | "unknown";
   href: string;
   request?: {
@@ -146,7 +147,7 @@ export const evaluateAiRequestPolicy = (
 const mediaTypeSchema = z.enum(["movie", "tv"]);
 const searchSchema = z.object({
   query: z.string().trim().min(1).max(120),
-  limit: z.number().int().min(1).max(8).default(5),
+  limit: z.number().int().min(1).max(5).default(3),
 });
 const titleSchema = z.object({
   media_type: mediaTypeSchema,
@@ -157,7 +158,7 @@ const availableSchema = z.object({
   genre: z.string().trim().max(60).optional(),
   min_rating: z.number().min(0).max(10).default(0),
   max_runtime_minutes: z.number().int().min(30).max(360).optional(),
-  limit: z.number().int().min(1).max(8).default(5),
+  limit: z.number().int().min(1).max(5).default(3),
 });
 const requestSchema = z.object({
   media_type: mediaTypeSchema,
@@ -190,7 +191,7 @@ export const AI_AGENT_TOOLS = [
     "Search the Chanflix/TMDB catalog for movies or series. Use this before assuming a title identity.",
     {
       query: { type: "string", description: "Title or concise search phrase." },
-      limit: { type: "integer", minimum: 1, maximum: 8 },
+      limit: { type: "integer", minimum: 1, maximum: 5 },
     },
     ["query"]
   ),
@@ -211,7 +212,7 @@ export const AI_AGENT_TOOLS = [
       genre: { type: "string", description: "Optional genre name." },
       min_rating: { type: "number", minimum: 0, maximum: 10 },
       max_runtime_minutes: { type: "integer", minimum: 30, maximum: 360 },
-      limit: { type: "integer", minimum: 1, maximum: 8 },
+      limit: { type: "integer", minimum: 1, maximum: 5 },
     }
   ),
   tool(
@@ -283,6 +284,7 @@ const cardFromResult = (result: {
   posterPath?: string;
   voteAverage?: number;
   voteCount?: number;
+  popularity?: number;
   genres?: { name: string }[];
   runtime?: number;
   episodeRunTime?: number[];
@@ -304,6 +306,7 @@ const cardFromResult = (result: {
     runtimeMinutes: result.runtime ?? result.episodeRunTime?.[0],
     voteAverage: result.voteAverage,
     voteCount: result.voteCount,
+    popularity: result.popularity,
     status: statusName(result.mediaInfo?.status),
     href: `/${result.mediaType}/${result.id}`,
   };
@@ -317,11 +320,37 @@ const summarizeCards = (cards: AiMediaCard[]) =>
     year: card.year,
     rating: card.voteAverage,
     voteCount: card.voteCount,
+    popularity: card.popularity,
     genres: card.genres,
     runtimeMinutes: card.runtimeMinutes,
     status: card.status,
     overview: card.overview,
   }));
+
+const normalizedTitle = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+export const rankAiMediaCards = (
+  cards: AiMediaCard[],
+  query?: string
+): AiMediaCard[] => {
+  const normalizedQuery = query ? normalizedTitle(query) : undefined;
+  return [...cards].sort((left, right) => {
+    if (normalizedQuery) {
+      const leftExact = normalizedTitle(left.title) === normalizedQuery;
+      const rightExact = normalizedTitle(right.title) === normalizedQuery;
+      if (leftExact !== rightExact) return leftExact ? -1 : 1;
+    }
+    return (
+      (right.voteCount ?? 0) - (left.voteCount ?? 0) ||
+      (right.popularity ?? 0) - (left.popularity ?? 0) ||
+      (right.voteAverage ?? 0) - (left.voteAverage ?? 0)
+    );
+  });
+};
 
 const parseArguments = (raw: string): unknown => {
   if (raw.length > 4_000) throw new Error("Tool arguments are too large.");
@@ -363,10 +392,12 @@ const executeSearch = async (raw: unknown): Promise<AiToolResult> => {
   const media = await Media.getRelatedMedia(
     response.results.map((item) => item.id)
   );
-  const cards = mapSearchResults(response.results, media)
-    .map(cardFromResult)
-    .filter((card): card is AiMediaCard => !!card)
-    .slice(0, args.limit);
+  const cards = rankAiMediaCards(
+    mapSearchResults(response.results, media)
+      .map(cardFromResult)
+      .filter((card): card is AiMediaCard => !!card),
+    args.query
+  ).slice(0, args.limit);
 
   return { content: JSON.stringify({ results: summarizeCards(cards) }), cards };
 };
@@ -394,38 +425,41 @@ const executeAvailable = async (raw: unknown): Promise<AiToolResult> => {
           }),
     },
     order: { mediaAddedAt: "DESC", updatedAt: "DESC" },
-    take: Math.min(16, Math.max(args.limit * 2, 8)),
+    take: Math.min(20, Math.max(args.limit * 4, 12)),
   });
 
   const details: Array<AiMediaCard | undefined> = [];
   for (let index = 0; index < candidates.length; index += 4) {
     details.push(
       ...(await Promise.all(
-        candidates.slice(index, index + 4).map((media) =>
-          getDetailsCard(
-            media.mediaType === MediaType.MOVIE ? "movie" : "tv",
-            media.tmdbId
-          ).catch(() => undefined)
-        )
+        candidates
+          .slice(index, index + 4)
+          .map((media) =>
+            getDetailsCard(
+              media.mediaType === MediaType.MOVIE ? "movie" : "tv",
+              media.tmdbId
+            ).catch(() => undefined)
+          )
       ))
     );
   }
   const genre = args.genre?.toLowerCase();
-  const cards = details
-    .filter((card): card is AiMediaCard => !!card)
-    .filter((card) => (card.voteAverage ?? 0) >= args.min_rating)
-    .filter(
-      (card) =>
-        !genre ||
-        card.genres?.some((name) => name.toLowerCase().includes(genre))
-    )
-    .filter(
-      (card) =>
-        !args.max_runtime_minutes ||
-        !card.runtimeMinutes ||
-        card.runtimeMinutes <= args.max_runtime_minutes
-    )
-    .slice(0, args.limit);
+  const cards = rankAiMediaCards(
+    details
+      .filter((card): card is AiMediaCard => !!card)
+      .filter((card) => (card.voteAverage ?? 0) >= args.min_rating)
+      .filter(
+        (card) =>
+          !genre ||
+          card.genres?.some((name) => name.toLowerCase().includes(genre))
+      )
+      .filter(
+        (card) =>
+          !args.max_runtime_minutes ||
+          !card.runtimeMinutes ||
+          card.runtimeMinutes <= args.max_runtime_minutes
+      )
+  ).slice(0, args.limit);
 
   return {
     content: JSON.stringify({
