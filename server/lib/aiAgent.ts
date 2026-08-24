@@ -1,8 +1,10 @@
 import TheMovieDb from "@server/api/themoviedb";
 import type {
+  TmdbMovieDetails,
   TmdbPersonCreditCast,
   TmdbPersonCreditCrew,
   TmdbPersonResult,
+  TmdbTvDetails,
 } from "@server/api/themoviedb/interfaces";
 import {
   MediaRequestStatus,
@@ -12,9 +14,14 @@ import {
 import { getRepository } from "@server/datasource";
 import Media from "@server/entity/Media";
 import { MediaRequest } from "@server/entity/MediaRequest";
+import TmdbMetadataCache from "@server/entity/TmdbMetadataCache";
 import type { User } from "@server/entity/User";
-import downloadTracker from "@server/lib/downloadtracker";
+import downloadTracker, {
+  type DownloadingItem,
+  type RecentDownloadItem,
+} from "@server/lib/downloadtracker";
 import { Permission } from "@server/lib/permissions";
+import { searchWeb } from "@server/lib/webSearch";
 import logger from "@server/logger";
 import { mapMovieDetails } from "@server/models/Movie";
 import { mapSearchResults } from "@server/models/Search";
@@ -75,6 +82,7 @@ export type PendingAiRequest = {
 
 const pendingRequests = new Map<string, PendingAiRequest>();
 const REQUEST_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
+const MAX_PENDING_CONFIRMATIONS_PER_USER = 6;
 
 export interface AiRequestPolicyInput {
   mediaType: AiMediaType;
@@ -151,9 +159,10 @@ export const evaluateAiRequestPolicy = (
 };
 
 const mediaTypeSchema = z.enum(["movie", "tv"]);
+const eitherMediaTypeSchema = z.enum(["movie", "tv", "either"]);
 const searchSchema = z.object({
   query: z.string().trim().min(1).max(120),
-  limit: z.number().int().min(1).max(5).default(3),
+  limit: z.number().int().min(1).max(4).default(3),
 });
 const titleSchema = z.object({
   media_type: mediaTypeSchema,
@@ -168,15 +177,15 @@ const personCreditsSchema = z.object({
   role: z
     .enum(["acting", "directing", "writing", "crew", "all"])
     .default("all"),
-  media_type: z.enum(["movie", "tv", "either"]).default("either"),
+  media_type: eitherMediaTypeSchema.default("either"),
   available_only: z.boolean().default(false),
-  limit: z.number().int().min(1).max(5).default(5),
+  limit: z.number().int().min(1).max(4).default(4),
 });
 const personLookupSchema = peopleSearchSchema.merge(
   personCreditsSchema.omit({ person_id: true })
 );
 const plexSummarySchema = z.object({
-  media_type: z.enum(["movie", "tv", "either"]).default("either"),
+  media_type: eitherMediaTypeSchema.default("either"),
   include_recent: z.boolean().default(true),
 });
 const displayTitlesSchema = z.object({
@@ -188,14 +197,14 @@ const displayTitlesSchema = z.object({
       })
     )
     .min(1)
-    .max(5),
+    .max(4),
 });
 const availableSchema = z.object({
   media_type: z.enum(["movie", "tv", "either"]).default("either"),
   genre: z.string().trim().max(60).optional(),
   min_rating: z.number().min(0).max(10).default(0),
   max_runtime_minutes: z.number().int().min(30).max(360).optional(),
-  limit: z.number().int().min(1).max(5).default(3),
+  limit: z.number().int().min(1).max(4).default(3),
 });
 const requestSchema = z.object({
   media_type: mediaTypeSchema,
@@ -204,9 +213,109 @@ const requestSchema = z.object({
 });
 const titleRequestSchema = z.object({
   query: z.string().trim().min(1).max(120),
-  media_type: z.enum(["movie", "tv", "either"]).default("either"),
+  media_type: eitherMediaTypeSchema.default("either"),
   year: z.number().int().min(1870).max(2100).optional(),
   seasons: z.array(z.number().int().min(1).max(100)).max(3).optional(),
+});
+
+const mediaReferenceSchema = z.object({
+  media_type: mediaTypeSchema,
+  tmdb_id: z.number().int().positive(),
+});
+
+const lookupMediaSchema = z
+  .object({
+    operation: z.enum(["search", "details"]),
+    query: z.string().trim().min(1).max(120).optional(),
+    media_type: eitherMediaTypeSchema.default("either"),
+    year: z.number().int().min(1870).max(2100).optional(),
+    items: z.array(mediaReferenceSchema).min(1).max(4).optional(),
+    include_credits: z.boolean().default(false),
+    limit: z.number().int().min(1).max(4).default(3),
+  })
+  .superRefine((value, context) => {
+    if (value.operation === "search" && !value.query) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "query required",
+      });
+    }
+    if (value.operation === "details" && !value.items?.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "items required",
+      });
+    }
+  });
+
+const mergedPersonLookupSchema = z
+  .object({
+    query: z.string().trim().min(1).max(120).optional(),
+    person_id: z.number().int().positive().optional(),
+    role: z
+      .enum(["acting", "directing", "writing", "crew", "all"])
+      .default("all"),
+    media_type: eitherMediaTypeSchema.default("either"),
+    available_only: z.boolean().default(false),
+    limit: z.number().int().min(1).max(4).default(4),
+  })
+  .superRefine((value, context) => {
+    if (!!value.query === !!value.person_id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "provide exactly one of query or person_id",
+      });
+    }
+  });
+
+const browseLibrarySchema = z.object({
+  operation: z.enum(["summary", "discover"]),
+  media_type: eitherMediaTypeSchema.default("either"),
+  availability: z.enum(["ready", "include_partial"]).default("ready"),
+  genres: z.array(z.string().trim().min(1).max(60)).max(4).default([]),
+  exclude_genres: z.array(z.string().trim().min(1).max(60)).max(4).default([]),
+  min_rating: z.number().min(0).max(10).default(0),
+  max_runtime_minutes: z.number().int().min(1).max(600).optional(),
+  year_from: z.number().int().min(1870).max(2100).optional(),
+  year_to: z.number().int().min(1870).max(2100).optional(),
+  sort: z.enum(["quality", "popular", "recent"]).default("quality"),
+  limit: z.number().int().min(1).max(4).default(3),
+});
+
+const checkActivitySchema = z.object({
+  kind: z.enum(["requests", "downloads"]),
+  query: z.string().trim().min(1).max(120).optional(),
+  media_type: eitherMediaTypeSchema.default("either"),
+  include_recent: z.boolean().default(false),
+  limit: z.number().int().min(1).max(8).default(5),
+});
+
+const requestMediaSchema = z
+  .object({
+    query: z.string().trim().min(1).max(120).optional(),
+    tmdb_id: z.number().int().positive().optional(),
+    media_type: eitherMediaTypeSchema.default("either"),
+    year: z.number().int().min(1870).max(2100).optional(),
+    seasons: z.array(z.number().int().min(1).max(100)).max(3).optional(),
+  })
+  .superRefine((value, context) => {
+    if (!!value.query === !!value.tmdb_id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "provide exactly one of query or tmdb_id",
+      });
+    }
+    if (value.tmdb_id && value.media_type === "either") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "exact IDs require movie or tv",
+      });
+    }
+  });
+
+const webSearchSchema = z.object({
+  query: z.string().trim().min(2).max(300),
+  limit: z.number().int().min(1).max(4).default(4),
 });
 
 const tool = (
@@ -230,86 +339,18 @@ const tool = (
 
 export const AI_AGENT_TOOLS = [
   tool(
-    "search_titles",
-    "Search the Chanflix/TMDB catalog for movies or series. Use this before assuming a title identity.",
+    "lookup_media",
+    "Search for a movie or series, or get exact metadata and canonical cards. Use search when IDs are unknown; use details for known IDs, credits, or a final selected set.",
     {
-      query: { type: "string", description: "Title or concise search phrase." },
-      limit: { type: "integer", minimum: 1, maximum: 5 },
-    },
-    ["query"]
-  ),
-  tool(
-    "get_title",
-    "Get confirmed metadata, availability, cast, directors, writers, and creators for one exact movie or series.",
-    {
-      media_type: { type: "string", enum: ["movie", "tv"] },
-      tmdb_id: { type: "integer", minimum: 1 },
-    },
-    ["media_type", "tmdb_id"]
-  ),
-  tool(
-    "lookup_person",
-    "Resolve an actor, director, writer, or other film person by name and return verified identity, biography, birth details, IMDb ID, and a small filmography in one call. Prefer this over separate person search and filmography calls; ambiguous names are returned for clarification.",
-    {
-      query: { type: "string", description: "Person name." },
-      role: {
-        type: "string",
-        enum: ["acting", "directing", "writing", "crew", "all"],
-      },
+      operation: { type: "string", enum: ["search", "details"] },
+      query: { type: "string", description: "Required for search." },
       media_type: { type: "string", enum: ["movie", "tv", "either"] },
-      available_only: {
-        type: "boolean",
-        description:
-          "True when the user asks what is available, on Plex, or on this server.",
-      },
-      limit: { type: "integer", minimum: 1, maximum: 5 },
-    },
-    ["query"]
-  ),
-  tool(
-    "search_people",
-    "Resolve an ambiguous film-person name into candidates. Usually use lookup_person instead.",
-    {
-      query: { type: "string", description: "Person name." },
-      limit: { type: "integer", minimum: 1, maximum: 3 },
-    },
-    ["query"]
-  ),
-  tool(
-    "get_person_filmography",
-    "Get a verified filmography when a person's TMDB ID is already known, usually after resolving an ambiguous lookup_person result.",
-    {
-      person_id: { type: "integer", minimum: 1 },
-      role: {
-        type: "string",
-        enum: ["acting", "directing", "writing", "crew", "all"],
-      },
-      media_type: { type: "string", enum: ["movie", "tv", "either"] },
-      available_only: {
-        type: "boolean",
-        description:
-          "True when the user asks what is available, on Plex, or on this server.",
-      },
-      limit: { type: "integer", minimum: 1, maximum: 5 },
-    },
-    ["person_id"]
-  ),
-  tool(
-    "get_plex_library_summary",
-    "Read the local Chanflix database for Plex-synced movie and series counts and a few recently added titles. Use whenever the user asks about this server, Plex, the library, or what is on here in general.",
-    {
-      media_type: { type: "string", enum: ["movie", "tv", "either"] },
-      include_recent: { type: "boolean" },
-    }
-  ),
-  tool(
-    "display_titles",
-    "Render the canonical Chanflix cards for one to five exact titles, including poster, year, rating, availability, and link. Use before the final answer whenever you name a concrete movie/series set and no prior tool in this request already returned cards for those titles.",
-    {
-      titles: {
+      year: { type: "integer", minimum: 1870, maximum: 2100 },
+      items: {
         type: "array",
         minItems: 1,
-        maxItems: 5,
+        maxItems: 4,
+        description: "Required for details.",
         items: {
           type: "object",
           additionalProperties: false,
@@ -320,49 +361,85 @@ export const AI_AGENT_TOOLS = [
           required: ["media_type", "tmdb_id"],
         },
       },
+      include_credits: { type: "boolean" },
+      limit: { type: "integer", minimum: 1, maximum: 4 },
     },
-    ["titles"]
+    ["operation"]
   ),
   tool(
-    "list_available_media",
-    "Find titles actually ready to watch on this Plex server. Useful for tailored recommendations.",
+    "lookup_person",
+    "Resolve a film person by name or exact TMDB person ID and return verified identity plus a small filmography. Ambiguous names are returned for clarification.",
     {
+      query: { type: "string", description: "Person name." },
+      person_id: {
+        type: "integer",
+        minimum: 1,
+        description: "Use instead of query after resolving ambiguity.",
+      },
+      role: {
+        type: "string",
+        enum: ["acting", "directing", "writing", "crew", "all"],
+      },
       media_type: { type: "string", enum: ["movie", "tv", "either"] },
-      genre: { type: "string", description: "Optional genre name." },
-      min_rating: { type: "number", minimum: 0, maximum: 10 },
-      max_runtime_minutes: { type: "integer", minimum: 30, maximum: 360 },
-      limit: { type: "integer", minimum: 1, maximum: 5 },
+      available_only: {
+        type: "boolean",
+        description:
+          "True when the user asks what is available, on Plex, or on this server.",
+      },
+      limit: { type: "integer", minimum: 1, maximum: 4 },
     }
   ),
   tool(
-    "find_something_to_watch",
-    "Return a small, factual candidate set from titles actually ready on this server after the conversation has established the user's taste. Never return more than three unless asked.",
+    "browse_library",
+    "Read the local Plex-synced Chanflix library. Use summary for counts; use discover for a small cache-first set of titles actually ready to watch.",
     {
+      operation: { type: "string", enum: ["summary", "discover"] },
       media_type: { type: "string", enum: ["movie", "tv", "either"] },
-      genre: {
+      availability: {
         type: "string",
-        description: "Optional genre preference established in conversation.",
+        enum: ["ready", "include_partial"],
+      },
+      genres: {
+        type: "array",
+        maxItems: 4,
+        items: { type: "string" },
+      },
+      exclude_genres: {
+        type: "array",
+        maxItems: 4,
+        items: { type: "string" },
       },
       min_rating: { type: "number", minimum: 0, maximum: 10 },
-      max_runtime_minutes: { type: "integer", minimum: 30, maximum: 360 },
-      limit: { type: "integer", minimum: 1, maximum: 3 },
-    }
+      max_runtime_minutes: { type: "integer", minimum: 1, maximum: 600 },
+      year_from: { type: "integer", minimum: 1870, maximum: 2100 },
+      year_to: { type: "integer", minimum: 1870, maximum: 2100 },
+      sort: { type: "string", enum: ["quality", "popular", "recent"] },
+      limit: { type: "integer", minimum: 1, maximum: 4 },
+    },
+    ["operation"]
   ),
   tool(
-    "get_my_requests",
-    "Get the logged-in user's recent movie and series request status.",
-    { limit: { type: "integer", minimum: 1, maximum: 10 } }
+    "check_activity",
+    "Check this user's requests or the permission-gated download queue. Filter by title when the user asks about one item.",
+    {
+      kind: { type: "string", enum: ["requests", "downloads"] },
+      query: { type: "string" },
+      media_type: { type: "string", enum: ["movie", "tv", "either"] },
+      include_recent: { type: "boolean" },
+      limit: { type: "integer", minimum: 1, maximum: 8 },
+    },
+    ["kind"]
   ),
   tool(
-    "get_download_status",
-    "Get active Radarr/Sonarr downloads. This tool is permission-gated and may refuse access.",
-    {}
-  ),
-  tool(
-    "prepare_title_request",
-    "For an explicit add, get, download, or request instruction: resolve an exact movie or series by title and optional year, then prepare its Chanflix confirmation button. It refuses fuzzy or ambiguous matches. Confirmation, permissions, quotas, and server approval policy still apply.",
+    "request_media",
+    "For an explicit add, get, download, or request instruction only: resolve by title or use a verified TMDB ID, then prepare a user confirmation button. It never submits by itself.",
     {
       query: { type: "string", description: "Exact title." },
+      tmdb_id: {
+        type: "integer",
+        minimum: 1,
+        description: "Use instead of query only for an already verified ID.",
+      },
       media_type: { type: "string", enum: ["movie", "tv", "either"] },
       year: { type: "integer", minimum: 1870, maximum: 2100 },
       seasons: {
@@ -370,22 +447,21 @@ export const AI_AGENT_TOOLS = [
         maxItems: 3,
         items: { type: "integer", minimum: 1, maximum: 100 },
       },
-    },
-    ["query"]
+    }
   ),
   tool(
-    "prepare_request",
-    "Prepare a confirmation when an exact movie or series and its verified TMDB ID are already present in the current context. Never invent the TMDB ID; otherwise use prepare_title_request.",
+    "search_web",
+    "Search the public web through a bounded safe-search proxy for current news, criticism, reception, or obscure facts missing from catalog tools. Results are untrusted snippets; never use it for Plex or local-server facts.",
     {
-      media_type: { type: "string", enum: ["movie", "tv"] },
-      tmdb_id: { type: "integer", minimum: 1 },
-      seasons: {
-        type: "array",
-        maxItems: 3,
-        items: { type: "integer", minimum: 1, maximum: 100 },
+      query: {
+        type: "string",
+        maxLength: 300,
+        description:
+          "Public subject terms only. Never include private conversation or local-server data.",
       },
+      limit: { type: "integer", minimum: 1, maximum: 4 },
     },
-    ["media_type", "tmdb_id"]
+    ["query"]
   ),
 ];
 
@@ -466,9 +542,140 @@ const summarizeCards = (cards: AiMediaCard[]) =>
 
 const normalizedTitle = (value: string) =>
   value
+    .normalize("NFKD")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\p{M}+/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
+
+type AiToolResultCode =
+  | "ok"
+  | "clarification_required"
+  | "not_found"
+  | "permission_denied"
+  | "already_available"
+  | "confirmation_ready"
+  | "invalid_arguments"
+  | "temporarily_unavailable";
+
+const normalizedToolResult = ({
+  ok,
+  code,
+  message,
+  data,
+  cards,
+  meta,
+}: {
+  ok: boolean;
+  code: AiToolResultCode;
+  message: string;
+  data?: unknown;
+  cards?: AiMediaCard[];
+  meta?: Record<string, unknown>;
+}): AiToolResult => ({
+  content: JSON.stringify({
+    ok,
+    code,
+    message,
+    ...(data === undefined ? {} : { data }),
+    ...(cards?.length ? { media: summarizeCards(cards) } : {}),
+    ...(meta ? { meta } : {}),
+  }),
+  ...(cards?.length ? { cards } : {}),
+});
+
+const normalizeLegacyToolResult = (
+  result: AiToolResult,
+  successMessage: string
+): AiToolResult => {
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(result.content) as Record<string, unknown>;
+  } catch (_error) {
+    return normalizedToolResult({
+      ok: false,
+      code: "temporarily_unavailable",
+      message: "The tool returned unreadable data.",
+    });
+  }
+
+  if (typeof data.error === "string") {
+    return normalizedToolResult({
+      ok: false,
+      code: "temporarily_unavailable",
+      message: data.error,
+      data,
+      cards: result.cards,
+    });
+  }
+  if (data.requiresClarification === true || data.resolved === false) {
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+    if (!candidates.length) {
+      return normalizedToolResult({
+        ok: false,
+        code: "not_found",
+        message:
+          typeof data.reason === "string"
+            ? data.reason
+            : "No matching result was found.",
+        data,
+        cards: result.cards,
+      });
+    }
+    return normalizedToolResult({
+      ok: false,
+      code: "clarification_required",
+      message:
+        typeof data.reason === "string"
+          ? data.reason
+          : "A specific match is required.",
+      data,
+      cards: result.cards,
+    });
+  }
+  if (data.refused === true) {
+    const reason =
+      typeof data.reason === "string" ? data.reason : "The action was refused.";
+    return normalizedToolResult({
+      ok: false,
+      code: /permission/i.test(reason)
+        ? "permission_denied"
+        : /already available/i.test(reason)
+        ? "already_available"
+        : "temporarily_unavailable",
+      message: reason,
+      data,
+      cards: result.cards,
+    });
+  }
+  if (data.prepared === true) {
+    return normalizedToolResult({
+      ok: true,
+      code: "confirmation_ready",
+      message:
+        "A confirmation button is ready. The request has not been submitted.",
+      data,
+      cards: result.cards,
+    });
+  }
+  if (Array.isArray(data.results) && data.results.length === 0) {
+    return normalizedToolResult({
+      ok: false,
+      code: "not_found",
+      message: "No matching result was found.",
+      data,
+      cards: result.cards,
+    });
+  }
+
+  return normalizedToolResult({
+    ok: true,
+    code: "ok",
+    message: successMessage,
+    data,
+    cards: result.cards,
+  });
+};
 
 export const resolveAiTitleMatch = (
   cards: AiMediaCard[],
@@ -526,9 +733,10 @@ export const rankAiMediaCards = (
 export const finalizeAiMediaCards = (cards: AiMediaCard[]): AiMediaCard[] => {
   const unique = new Map<string, AiMediaCard>();
   for (const card of cards) {
-    unique.set(`${card.mediaType}:${card.tmdbId}`, card);
+    const key = `${card.mediaType}:${card.tmdbId}`;
+    unique.set(key, card);
   }
-  return rankAiMediaCards([...unique.values()]).slice(0, AI_AGENT_MAX_CARDS);
+  return [...unique.values()].slice(0, AI_AGENT_MAX_CARDS);
 };
 
 export const stageAiMediaCards = (
@@ -569,6 +777,237 @@ const getDetailsCard = async (
     imdbId: details.externalIds.imdbId,
   }) as AiMediaCard;
 };
+
+type CachedCardLookup = {
+  cards: Map<string, AiMediaCard>;
+  freshKeys: Set<string>;
+};
+
+export type AiLibraryEntry = {
+  card: AiMediaCard;
+  mediaAddedAt?: Date;
+};
+
+export type AiLibraryCriteria = z.infer<typeof browseLibrarySchema>;
+
+type AiLibrarySnapshot = {
+  expiresAt: number;
+  entries: AiLibraryEntry[];
+  missing: Media[];
+  freshCount: number;
+  totalCount: number;
+};
+
+const AI_LIBRARY_SNAPSHOT_TTL_MS = 90_000;
+const AI_LIBRARY_CACHE_CHUNK_SIZE = 400;
+const AI_LIBRARY_LIVE_FALLBACK_LIMIT = 8;
+let aiLibrarySnapshot: AiLibrarySnapshot | undefined;
+
+const mediaKey = (mediaType: AiMediaType, tmdbId: number) =>
+  `${mediaType}:${tmdbId}`;
+
+const mediaEntityType = (media: Media): AiMediaType =>
+  media.mediaType === MediaType.MOVIE ? "movie" : "tv";
+
+const chunks = <T>(items: T[], size: number): T[][] => {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
+  }
+  return result;
+};
+
+const cardFromCachedMetadata = (
+  media: Media,
+  payload: TmdbMovieDetails | TmdbTvDetails
+): AiMediaCard | undefined => {
+  if (media.mediaType === MediaType.MOVIE) {
+    const details = mapMovieDetails(payload as TmdbMovieDetails, media);
+    return cardFromResult({ ...details, mediaType: "movie" });
+  }
+
+  const details = mapTvDetails(payload as TmdbTvDetails, media);
+  return cardFromResult({
+    ...details,
+    mediaType: "tv",
+    firstAirDate: details.firstAirDate,
+    imdbId: details.externalIds.imdbId,
+  });
+};
+
+const getCachedCardsForMedia = async (
+  media: Media[]
+): Promise<CachedCardLookup> => {
+  const cards = new Map<string, AiMediaCard>();
+  const freshKeys = new Set<string>();
+  if (!media.length) return { cards, freshKeys };
+
+  const cacheRepository = getRepository(TmdbMetadataCache);
+  const newestRows = new Map<string, TmdbMetadataCache>();
+
+  for (const mediaType of [MediaType.MOVIE, MediaType.TV] as const) {
+    const ids = Array.from(
+      new Set(
+        media
+          .filter((item) => item.mediaType === mediaType)
+          .map((item) => item.tmdbId)
+      )
+    );
+    for (const idChunk of chunks(ids, AI_LIBRARY_CACHE_CHUNK_SIZE)) {
+      if (!idChunk.length) continue;
+      const rows = await cacheRepository.find({
+        where: {
+          mediaType: mediaType === MediaType.MOVIE ? "movie" : "tv",
+          tmdbId: In(idChunk),
+          language: "en",
+        },
+        order: { fetchedAt: "DESC" },
+      });
+      for (const row of rows) {
+        const key = mediaKey(row.mediaType, row.tmdbId);
+        if (!newestRows.has(key)) newestRows.set(key, row);
+      }
+    }
+  }
+
+  const mediaByKey = new Map(
+    media.map((item) => [mediaKey(mediaEntityType(item), item.tmdbId), item])
+  );
+  for (const [key, row] of newestRows) {
+    const item = mediaByKey.get(key);
+    if (!item) continue;
+    try {
+      const card = cardFromCachedMetadata(
+        item,
+        JSON.parse(row.payload) as TmdbMovieDetails | TmdbTvDetails
+      );
+      if (!card) continue;
+      cards.set(key, card);
+      if (row.expiresAt.getTime() > Date.now()) freshKeys.add(key);
+    } catch (_error) {
+      // One malformed cache row must not make the whole library unavailable.
+    }
+  }
+  return { cards, freshKeys };
+};
+
+const loadAiLibrarySnapshot = async (): Promise<AiLibrarySnapshot> => {
+  if (aiLibrarySnapshot && aiLibrarySnapshot.expiresAt > Date.now()) {
+    return aiLibrarySnapshot;
+  }
+
+  const media = await getRepository(Media).find({
+    where: {
+      status: In([MediaStatus.AVAILABLE, MediaStatus.PARTIALLY_AVAILABLE]),
+    },
+    order: { mediaAddedAt: "DESC", updatedAt: "DESC" },
+  });
+  const cached = await getCachedCardsForMedia(media);
+  const entries: AiLibraryEntry[] = [];
+  const missing: Media[] = [];
+  for (const item of media) {
+    const card = cached.cards.get(mediaKey(mediaEntityType(item), item.tmdbId));
+    if (card) entries.push({ card, mediaAddedAt: item.mediaAddedAt });
+    else missing.push(item);
+  }
+
+  aiLibrarySnapshot = {
+    expiresAt: Date.now() + AI_LIBRARY_SNAPSHOT_TTL_MS,
+    entries,
+    missing,
+    freshCount: cached.freshKeys.size,
+    totalCount: media.length,
+  };
+  return aiLibrarySnapshot;
+};
+
+const qualityScore = (card: AiMediaCard): number => {
+  const votes = Math.max(0, card.voteCount ?? 0);
+  const rating = card.voteAverage ?? 0;
+  const confidenceVotes = 500;
+  const globalMean = 6.5;
+  return (
+    (votes / (votes + confidenceVotes)) * rating +
+    (confidenceVotes / (votes + confidenceVotes)) * globalMean
+  );
+};
+
+const matchesLibraryCriteria = (
+  entry: AiLibraryEntry,
+  args: z.infer<typeof browseLibrarySchema>
+): boolean => {
+  const { card } = entry;
+  if (args.media_type !== "either" && card.mediaType !== args.media_type) {
+    return false;
+  }
+  if (args.availability === "ready" && card.status !== "available") {
+    return false;
+  }
+  if ((card.voteAverage ?? 0) < args.min_rating) return false;
+  if (
+    args.max_runtime_minutes !== undefined &&
+    (card.runtimeMinutes === undefined ||
+      card.runtimeMinutes > args.max_runtime_minutes)
+  ) {
+    return false;
+  }
+  const year = Number(card.year);
+  if (args.year_from && (!Number.isFinite(year) || year < args.year_from)) {
+    return false;
+  }
+  if (args.year_to && (!Number.isFinite(year) || year > args.year_to)) {
+    return false;
+  }
+  const genres = (card.genres ?? []).map(normalizedTitle);
+  if (
+    args.genres.length &&
+    !args.genres.every((genre) =>
+      genres.some((candidate) => candidate.includes(normalizedTitle(genre)))
+    )
+  ) {
+    return false;
+  }
+  if (
+    args.exclude_genres.some((genre) =>
+      genres.some((candidate) => candidate.includes(normalizedTitle(genre)))
+    )
+  ) {
+    return false;
+  }
+  return true;
+};
+
+const sortLibraryEntries = (
+  entries: AiLibraryEntry[],
+  sort: z.infer<typeof browseLibrarySchema>["sort"]
+): AiLibraryEntry[] =>
+  [...entries].sort((left, right) => {
+    if (sort === "recent") {
+      return (
+        (right.mediaAddedAt?.getTime() ?? 0) -
+        (left.mediaAddedAt?.getTime() ?? 0)
+      );
+    }
+    if (sort === "popular") {
+      return (
+        (right.card.popularity ?? 0) - (left.card.popularity ?? 0) ||
+        (right.card.voteCount ?? 0) - (left.card.voteCount ?? 0)
+      );
+    }
+    return (
+      qualityScore(right.card) - qualityScore(left.card) ||
+      (right.card.voteCount ?? 0) - (left.card.voteCount ?? 0)
+    );
+  });
+
+export const filterAndRankAiLibraryEntries = (
+  entries: AiLibraryEntry[],
+  criteria: AiLibraryCriteria
+): AiLibraryEntry[] =>
+  sortLibraryEntries(
+    entries.filter((entry) => matchesLibraryCriteria(entry, criteria)),
+    criteria.sort
+  );
 
 const summarizeKnownFor = (person: TmdbPersonResult, relatedMedia: Media[]) =>
   person.known_for.slice(0, 3).map((credit) => {
@@ -980,100 +1419,248 @@ const executeGetTitle = async (raw: unknown): Promise<AiToolResult> => {
   };
 };
 
-const executeAvailable = async (raw: unknown): Promise<AiToolResult> => {
-  const args = availableSchema.parse(raw);
-  const repository = getRepository(Media);
-  const candidates = await repository.find({
-    where: {
-      status: In([MediaStatus.AVAILABLE, MediaStatus.PARTIALLY_AVAILABLE]),
-      ...(args.media_type === "either"
-        ? {}
-        : {
-            mediaType:
-              args.media_type === "movie" ? MediaType.MOVIE : MediaType.TV,
-          }),
-    },
-    order: { mediaAddedAt: "DESC", updatedAt: "DESC" },
-    take: Math.min(20, Math.max(args.limit * 4, 12)),
-  });
-
-  const details: Array<AiMediaCard | undefined> = [];
-  for (let index = 0; index < candidates.length; index += 4) {
-    details.push(
-      ...(await Promise.all(
-        candidates
-          .slice(index, index + 4)
-          .map((media) =>
-            getDetailsCard(
-              media.mediaType === MediaType.MOVIE ? "movie" : "tv",
-              media.tmdbId
-            ).catch(() => undefined)
-          )
-      ))
+const executeMergedLookupMedia = async (
+  raw: unknown
+): Promise<AiToolResult> => {
+  const args = lookupMediaSchema.parse(raw);
+  if (args.operation === "search") {
+    const response = await new TheMovieDb().searchMulti({
+      query: args.query as string,
+      page: 1,
+    });
+    const media = await Media.getRelatedMedia(
+      response.results.map((item) => item.id)
     );
+    const cards = rankAiMediaCards(
+      mapSearchResults(response.results, media)
+        .map(cardFromResult)
+        .filter((card): card is AiMediaCard => !!card)
+        .filter(
+          (card) =>
+            args.media_type === "either" || card.mediaType === args.media_type
+        )
+        .filter((card) => !args.year || Number(card.year) === args.year),
+      args.query
+    ).slice(0, args.limit);
+    return {
+      content: JSON.stringify({
+        query: args.query,
+        results: summarizeCards(cards),
+      }),
+      cards,
+    };
   }
-  const genre = args.genre?.toLowerCase();
-  const cards = rankAiMediaCards(
-    details
-      .filter((card): card is AiMediaCard => !!card)
-      .filter((card) => (card.voteAverage ?? 0) >= args.min_rating)
-      .filter(
-        (card) =>
-          !genre ||
-          card.genres?.some((name) => name.toLowerCase().includes(genre))
-      )
-      .filter(
-        (card) =>
-          !args.max_runtime_minutes ||
-          !card.runtimeMinutes ||
-          card.runtimeMinutes <= args.max_runtime_minutes
-      )
-  ).slice(0, args.limit);
 
+  const unique = new Map(
+    (args.items ?? []).map((item) => [
+      mediaKey(item.media_type, item.tmdb_id),
+      item,
+    ])
+  );
+  if (!args.include_credits) {
+    return executeDisplayTitles({ titles: [...unique.values()] });
+  }
+
+  const results = await Promise.all(
+    [...unique.values()].map((item) =>
+      executeGetTitle(item).catch(() => undefined)
+    )
+  );
+  const cards = results.flatMap((result) => result?.cards ?? []);
   return {
     content: JSON.stringify({
-      confirmedAvailable: true,
-      notExhaustive: true,
-      note: genre
-        ? "Genre is a preference hint; verify fit from metadata."
-        : undefined,
-      results: summarizeCards(cards),
+      results: results
+        .map((result) => {
+          if (!result) return undefined;
+          try {
+            return JSON.parse(result.content) as unknown;
+          } catch (_error) {
+            return undefined;
+          }
+        })
+        .filter((result) => result !== undefined),
+      missingCount: unique.size - cards.length,
     }),
     cards,
   };
 };
 
-const executeMyRequests = async (
-  raw: unknown,
-  user: User
+const executeMergedLookupPerson = async (
+  raw: unknown
 ): Promise<AiToolResult> => {
-  const args = z
-    .object({ limit: z.number().int().min(1).max(10).default(5) })
-    .parse(raw);
-  const requests = await getRepository(MediaRequest).find({
-    where: { requestedBy: { id: user.id } },
-    relations: { media: true, seasons: true },
-    order: { createdAt: "DESC" },
-    take: args.limit,
+  const args = mergedPersonLookupSchema.parse(raw);
+  if (args.person_id) {
+    return executePersonFilmography({
+      person_id: args.person_id,
+      role: args.role,
+      media_type: args.media_type,
+      available_only: args.available_only,
+      limit: args.limit,
+    });
+  }
+  return executeLookupPerson({
+    query: args.query,
+    role: args.role,
+    media_type: args.media_type,
+    available_only: args.available_only,
+    limit: args.limit,
   });
-  const status = (value: MediaRequestStatus) =>
-    MediaRequestStatus[value]?.toLowerCase();
-  const cards = (
-    await Promise.all(
-      requests.map((request) =>
-        getDetailsCard(
-          request.type === MediaType.MOVIE ? "movie" : "tv",
-          request.media.tmdbId
-        ).catch(() => undefined)
+};
+
+const executeBrowseLibrary = async (raw: unknown): Promise<AiToolResult> => {
+  const args = browseLibrarySchema.parse(raw);
+  if (args.operation === "summary") {
+    return executePlexSummary({
+      media_type: args.media_type,
+      include_recent: false,
+    });
+  }
+
+  const snapshot = await loadAiLibrarySnapshot();
+  let entries = filterAndRankAiLibraryEntries(snapshot.entries, args);
+
+  let liveFallbackCount = 0;
+  if (entries.length < args.limit && snapshot.missing.length) {
+    const eligibleMissing = snapshot.missing
+      .filter(
+        (item) =>
+          args.media_type === "either" ||
+          mediaEntityType(item) === args.media_type
       )
-    )
-  ).filter((card): card is AiMediaCard => !!card);
+      .filter(
+        (item) =>
+          args.availability === "include_partial" ||
+          item.status === MediaStatus.AVAILABLE
+      )
+      .slice(0, AI_LIBRARY_LIVE_FALLBACK_LIMIT);
+    const liveEntries: AiLibraryEntry[] = [];
+    for (const batch of chunks(eligibleMissing, 3)) {
+      const cards = await Promise.all(
+        batch.map((item) =>
+          getDetailsCard(mediaEntityType(item), item.tmdbId).catch(
+            () => undefined
+          )
+        )
+      );
+      cards.forEach((card, index) => {
+        if (card) {
+          liveEntries.push({
+            card,
+            mediaAddedAt: batch[index].mediaAddedAt,
+          });
+          liveFallbackCount += 1;
+        }
+      });
+    }
+    entries = filterAndRankAiLibraryEntries(
+      [...snapshot.entries, ...liveEntries],
+      args
+    );
+    if (liveFallbackCount) aiLibrarySnapshot = undefined;
+  }
+
+  const cards = entries.slice(0, args.limit).map((entry) => entry.card);
   return {
     content: JSON.stringify({
-      results: requests.map((request) => ({
+      confirmedAvailable: true,
+      results: summarizeCards(cards),
+      coverage: {
+        localTitles: snapshot.totalCount,
+        cachedMetadata: snapshot.entries.length,
+        freshMetadata: snapshot.freshCount,
+        missingMetadata: Math.max(
+          0,
+          snapshot.totalCount - snapshot.entries.length - liveFallbackCount
+        ),
+        liveFallbackCount,
+      },
+    }),
+    cards,
+  };
+};
+
+const executeActivityRequests = async (
+  args: z.infer<typeof checkActivitySchema>,
+  user: User
+): Promise<AiToolResult> => {
+  const requests = await getRepository(MediaRequest).find({
+    where: {
+      requestedBy: { id: user.id },
+      ...(args.media_type === "either"
+        ? {}
+        : {
+            type: args.media_type === "movie" ? MediaType.MOVIE : MediaType.TV,
+          }),
+    },
+    relations: { media: true, seasons: true },
+    order: { createdAt: "DESC" },
+    take: args.query ? 100 : args.limit,
+  });
+  const typeFiltered = requests.filter(
+    (request) =>
+      args.media_type === "either" || request.type === args.media_type
+  );
+  const media = Array.from(
+    new Map(
+      typeFiltered.map((request) => [
+        mediaKey(
+          request.type === MediaType.MOVIE ? "movie" : "tv",
+          request.media.tmdbId
+        ),
+        request.media,
+      ])
+    ).values()
+  );
+  const cached = await getCachedCardsForMedia(media);
+  const cardsByKey = new Map(cached.cards);
+  const missing = media
+    .filter(
+      (item) => !cardsByKey.has(mediaKey(mediaEntityType(item), item.tmdbId))
+    )
+    .slice(0, AI_LIBRARY_LIVE_FALLBACK_LIMIT);
+  for (const batch of chunks(missing, 3)) {
+    const cards = await Promise.all(
+      batch.map((item) =>
+        getDetailsCard(mediaEntityType(item), item.tmdbId).catch(
+          () => undefined
+        )
+      )
+    );
+    cards.forEach((card) => {
+      if (card) cardsByKey.set(mediaKey(card.mediaType, card.tmdbId), card);
+    });
+  }
+
+  const normalizedQuery = args.query && normalizedTitle(args.query);
+  const selected = typeFiltered
+    .map((request) => ({
+      request,
+      card: cardsByKey.get(
+        mediaKey(
+          request.type === MediaType.MOVIE ? "movie" : "tv",
+          request.media.tmdbId
+        )
+      ),
+    }))
+    .filter(
+      ({ card }) =>
+        !normalizedQuery ||
+        (card ? normalizedTitle(card.title).includes(normalizedQuery) : false)
+    )
+    .slice(0, args.limit);
+  const status = (value: MediaRequestStatus) =>
+    MediaRequestStatus[value]?.toLowerCase();
+  const cards = selected
+    .map(({ card }) => card)
+    .filter((card): card is AiMediaCard => !!card);
+  return {
+    content: JSON.stringify({
+      results: selected.map(({ request, card }) => ({
         requestId: request.id,
         mediaType: request.type,
         tmdbId: request.media.tmdbId,
+        title: card?.title,
+        year: card?.year,
         requestStatus: status(request.status),
         mediaStatus: statusName(
           request.is4k ? request.media.status4k : request.media.status
@@ -1081,12 +1668,22 @@ const executeMyRequests = async (
         seasons: request.seasons?.map((season) => season.seasonNumber),
         createdAt: request.createdAt,
       })),
+      metadataMissing: Math.max(0, media.length - cardsByKey.size),
     }),
     cards,
   };
 };
 
-const executeDownloads = async (user: User): Promise<AiToolResult> => {
+type ActivityDownload = (DownloadingItem | RecentDownloadItem) & {
+  active: boolean;
+  completedAt?: Date;
+  outcome?: "completed" | "cleared";
+};
+
+const executeActivityDownloads = async (
+  args: z.infer<typeof checkActivitySchema>,
+  user: User
+): Promise<AiToolResult> => {
   if (!user.hasPermission(Permission.MANAGE_REQUESTS)) {
     return {
       content: JSON.stringify({
@@ -1095,29 +1692,116 @@ const executeDownloads = async (user: User): Promise<AiToolResult> => {
       }),
     };
   }
-  const downloads = downloadTracker.getAllDownloads();
-  const compact = (items: typeof downloads.movies) =>
-    items.slice(0, 12).map((item) => ({
-      title: item.title,
-      mediaType: item.mediaType,
-      status: item.status,
-      sizeBytes: item.size,
-      remainingBytes: item.sizeLeft,
-      timeLeft: item.timeLeft,
-      estimatedCompletionTime: item.estimatedCompletionTime,
-      episode: item.episode
-        ? {
-            season: item.episode.seasonNumber,
-            episode: item.episode.episodeNumber,
-          }
-        : undefined,
-    }));
+
+  const active = downloadTracker.getAllDownloads();
+  const items: ActivityDownload[] = [
+    ...active.movies.map((item) => ({ ...item, active: true })),
+    ...active.tv.map((item) => ({ ...item, active: true })),
+  ];
+  if (args.include_recent) {
+    const recent = await downloadTracker.getRecentDownloads();
+    items.push(...recent.map((item) => ({ ...item, active: false })));
+  }
+  const normalizedQuery = args.query && normalizedTitle(args.query);
+  const unique = new Map<string, ActivityDownload>();
+  for (const item of items) {
+    if (args.media_type !== "either" && item.mediaType !== args.media_type) {
+      continue;
+    }
+    if (
+      normalizedQuery &&
+      !normalizedTitle(item.title).includes(normalizedQuery)
+    ) {
+      continue;
+    }
+    const key = [
+      item.mediaType,
+      item.externalId,
+      item.episode?.id ?? "",
+      item.active ? "active" : "recent",
+    ].join(":");
+    if (!unique.has(key)) unique.set(key, item);
+  }
+  const selected = [...unique.values()].slice(0, args.limit);
+  const mediaRepository = getRepository(Media);
+  const resolvedMedia = await Promise.all(
+    selected.map((item) =>
+      mediaRepository.findOne({
+        where: [
+          {
+            mediaType: item.mediaType,
+            externalServiceId: item.externalId,
+          },
+          {
+            mediaType: item.mediaType,
+            externalServiceId4k: item.externalId,
+          },
+        ],
+      })
+    )
+  );
+  const cards = (
+    await Promise.all(
+      resolvedMedia.map((media) =>
+        media
+          ? getDetailsCard(mediaEntityType(media), media.tmdbId).catch(
+              () => undefined
+            )
+          : undefined
+      )
+    )
+  ).filter((card): card is AiMediaCard => !!card);
+  const cardByKey = new Map(
+    cards.map((card) => [mediaKey(card.mediaType, card.tmdbId), card])
+  );
+
   return {
     content: JSON.stringify({
-      movies: compact(downloads.movies),
-      tv: compact(downloads.tv),
+      results: selected.map((item, index) => {
+        const media = resolvedMedia[index];
+        const card = media
+          ? cardByKey.get(mediaKey(mediaEntityType(media), media.tmdbId))
+          : undefined;
+        return {
+          title: card?.title ?? item.title,
+          mediaType: item.mediaType,
+          tmdbId: media?.tmdbId,
+          active: item.active,
+          status: item.status,
+          sizeBytes: item.size,
+          remainingBytes: item.sizeLeft,
+          progressPercent:
+            item.size > 0
+              ? Math.max(
+                  0,
+                  Math.min(100, 100 - (item.sizeLeft / item.size) * 100)
+                )
+              : undefined,
+          timeLeft: item.timeLeft,
+          estimatedCompletionTime: item.estimatedCompletionTime,
+          completedAt: item.completedAt,
+          outcome: item.outcome,
+          episode: item.episode
+            ? {
+                season: item.episode.seasonNumber,
+                episode: item.episode.episodeNumber,
+              }
+            : undefined,
+        };
+      }),
     }),
+    cards,
   };
+};
+
+const executeCheckActivity = async (
+  raw: unknown,
+  user: User
+): Promise<AiToolResult> => {
+  const args = checkActivitySchema.parse(raw);
+  return args.kind === "requests"
+    ? executeActivityRequests(args, user)
+    : executeActivityDownloads(args, user);
 };
 
 const executePrepareRequest = async (
@@ -1262,14 +1946,52 @@ const executePrepareTitleRequest = async (
   };
 };
 
+const executeRequestMedia = async (
+  raw: unknown,
+  user: User
+): Promise<AiToolResult> => {
+  const args = requestMediaSchema.parse(raw);
+  if (args.query) {
+    return executePrepareTitleRequest(
+      {
+        query: args.query,
+        media_type: args.media_type,
+        year: args.year,
+        seasons: args.seasons,
+      },
+      user
+    );
+  }
+  return executePrepareRequest(
+    {
+      media_type: args.media_type,
+      tmdb_id: args.tmdb_id,
+      seasons: args.seasons,
+    },
+    user
+  );
+};
+
 export const createRequestConfirmation = (
   request: Omit<PendingAiRequest, "expiresAt">,
   now = Date.now()
 ) => {
   pruneRequestConfirmations(now);
   for (const [existingToken, pending] of pendingRequests) {
-    if (pending.userId === request.userId)
+    if (
+      pending.userId === request.userId &&
+      pending.mediaType === request.mediaType &&
+      pending.tmdbId === request.tmdbId
+    ) {
       pendingRequests.delete(existingToken);
+    }
+  }
+  const userTokens = [...pendingRequests]
+    .filter(([, pending]) => pending.userId === request.userId)
+    .map(([token]) => token);
+  while (userTokens.length >= MAX_PENDING_CONFIRMATIONS_PER_USER) {
+    const oldest = userTokens.shift();
+    if (oldest) pendingRequests.delete(oldest);
   }
   while (pendingRequests.size >= 100) {
     const oldest = pendingRequests.keys().next().value as string | undefined;
@@ -1292,43 +2014,148 @@ export const executeAiTool = async (
   let raw: unknown;
   try {
     raw = parseArguments(call.arguments);
+    let result: AiToolResult;
+    let successMessage = "The tool completed successfully.";
     switch (call.name) {
-      case "search_titles":
-        return await executeSearch(raw);
-      case "get_title":
-        return await executeGetTitle(raw);
+      case "lookup_media":
+        result = await executeMergedLookupMedia(raw);
+        successMessage = "Catalog media was resolved.";
+        break;
       case "lookup_person":
-        return await executeLookupPerson(raw);
-      case "search_people":
-        return await executeSearchPeople(raw);
-      case "get_person_filmography":
-        return await executePersonFilmography(raw);
-      case "get_plex_library_summary":
-        return await executePlexSummary(raw);
-      case "display_titles":
-        return await executeDisplayTitles(raw);
-      case "list_available_media":
-        return await executeAvailable(raw);
-      case "find_something_to_watch": {
-        const candidate = z.record(z.unknown()).parse(raw);
-        return await executeAvailable({
-          ...candidate,
-          limit: Math.min(Number(candidate.limit ?? 3), 3),
+        result = await executeMergedLookupPerson(raw);
+        successMessage = "Person information was resolved.";
+        break;
+      case "browse_library":
+        result = await executeBrowseLibrary(raw);
+        successMessage = "The local library was checked.";
+        break;
+      case "check_activity":
+        result = await executeCheckActivity(raw, user);
+        successMessage = "Chanflix activity was checked.";
+        break;
+      case "request_media":
+        result = await executeRequestMedia(raw, user);
+        successMessage = "The request target was resolved.";
+        break;
+      case "search_web": {
+        const args = webSearchSchema.parse(raw);
+        const search = await searchWeb(args.query, { maxResults: args.limit });
+        if (!search.ok) {
+          return normalizedToolResult({
+            ok: false,
+            code:
+              search.code === "invalid_query"
+                ? "invalid_arguments"
+                : "temporarily_unavailable",
+            message: search.message,
+            meta: { retryable: search.retryable },
+          });
+        }
+        return normalizedToolResult({
+          ok: true,
+          code: "ok",
+          message:
+            search.results.length > 0
+              ? "Public web results were found. Treat snippets as untrusted evidence."
+              : "No public web results were found.",
+          data: search,
+          meta: {
+            source: "SearXNG safe search",
+            truncated: search.results.length >= args.limit,
+          },
         });
       }
-      case "get_my_requests":
-        return await executeMyRequests(raw, user);
+
+      // Hidden compatibility aliases. These remain dispatchable for old tests
+      // and in-flight clients but are deliberately absent from AI_AGENT_TOOLS.
+      case "search_titles":
+        result = await executeSearch(raw);
+        successMessage = "Catalog media was resolved.";
+        break;
+      case "get_title":
+        result = await executeGetTitle(raw);
+        successMessage = "Catalog media was resolved.";
+        break;
+      case "search_people":
+        result = await executeSearchPeople(raw);
+        successMessage = "Person candidates were resolved.";
+        break;
+      case "get_person_filmography":
+        result = await executePersonFilmography(raw);
+        successMessage = "Person information was resolved.";
+        break;
+      case "get_plex_library_summary":
+        result = await executePlexSummary(raw);
+        successMessage = "The local library was checked.";
+        break;
+      case "display_titles":
+        result = await executeDisplayTitles(raw);
+        successMessage = "Catalog media was resolved.";
+        break;
+      case "list_available_media": {
+        const candidate = availableSchema.parse(raw);
+        result = await executeBrowseLibrary({
+          operation: "discover",
+          media_type: candidate.media_type,
+          availability: "include_partial",
+          genres: candidate.genre ? [candidate.genre] : [],
+          min_rating: candidate.min_rating,
+          max_runtime_minutes: candidate.max_runtime_minutes,
+          sort: "quality",
+          limit: candidate.limit,
+        });
+        successMessage = "The local library was checked.";
+        break;
+      }
+      case "find_something_to_watch": {
+        const candidate = availableSchema.parse(raw);
+        result = await executeBrowseLibrary({
+          operation: "discover",
+          media_type: candidate.media_type,
+          availability: "include_partial",
+          genres: candidate.genre ? [candidate.genre] : [],
+          min_rating: candidate.min_rating,
+          max_runtime_minutes: candidate.max_runtime_minutes,
+          sort: "quality",
+          limit: Math.min(candidate.limit, 3),
+        });
+        successMessage = "The local library was checked.";
+        break;
+      }
+      case "get_my_requests": {
+        const candidate = z
+          .object({ limit: z.number().int().min(1).max(10).default(5) })
+          .parse(raw);
+        result = await executeCheckActivity(
+          { kind: "requests", limit: Math.min(candidate.limit, 8) },
+          user
+        );
+        successMessage = "Chanflix activity was checked.";
+        break;
+      }
       case "get_download_status":
-        return await executeDownloads(user);
+        result = await executeCheckActivity(
+          { kind: "downloads", limit: 8 },
+          user
+        );
+        successMessage = "Chanflix activity was checked.";
+        break;
       case "prepare_title_request":
-        return await executePrepareTitleRequest(raw, user);
+        result = await executePrepareTitleRequest(raw, user);
+        successMessage = "The request target was resolved.";
+        break;
       case "prepare_request":
-        return await executePrepareRequest(raw, user);
+        result = await executePrepareRequest(raw, user);
+        successMessage = "The request target was resolved.";
+        break;
       default:
-        return {
-          content: JSON.stringify({ refused: true, reason: "Unknown tool." }),
-        };
+        return normalizedToolResult({
+          ok: false,
+          code: "invalid_arguments",
+          message: "Unknown tool.",
+        });
     }
+    return normalizeLegacyToolResult(result, successMessage);
   } catch (error) {
     const message =
       error instanceof z.ZodError
@@ -1342,7 +2169,14 @@ export const executeAiTool = async (
         errorMessage: error instanceof Error ? error.message : "Unknown error",
       });
     }
-    return { content: JSON.stringify({ error: message }) };
+    return normalizedToolResult({
+      ok: false,
+      code:
+        error instanceof z.ZodError
+          ? "invalid_arguments"
+          : "temporarily_unavailable",
+      message,
+    });
   }
 };
 

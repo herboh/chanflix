@@ -20,17 +20,27 @@ import {
 import type { RTRating } from "@server/api/rating/rottentomatoes";
 import type { RatingResponse } from "@server/api/ratings";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import useSWR from "swr";
 
 type ChatRole = "user" | "assistant";
+
+interface MediaContext {
+  mediaType: "movie" | "tv";
+  tmdbId: number;
+  title: string;
+  year?: string;
+}
 
 interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
   cards?: MediaCardData[];
+  mediaContext?: MediaContext;
 }
 
 interface MediaCardData {
@@ -46,6 +56,10 @@ interface MediaCardData {
   status: "available" | "partial" | "processing" | "pending" | "unknown";
   href: string;
   request?: { token: string; label: string; expiresAt: string; note: string };
+}
+
+interface MediaRatingsResponse {
+  ratings: Record<string, RatingResponse | RTRating | null>;
 }
 
 interface StreamPayload {
@@ -240,6 +254,24 @@ const restoreMessages = (): ChatMessage[] => {
         id: message.id,
         role: message.role,
         content: message.content,
+        mediaContext:
+          message.mediaContext &&
+          (message.mediaContext.mediaType === "movie" ||
+            message.mediaContext.mediaType === "tv") &&
+          Number.isInteger(message.mediaContext.tmdbId) &&
+          message.mediaContext.tmdbId > 0 &&
+          typeof message.mediaContext.title === "string"
+            ? {
+                mediaType: message.mediaContext.mediaType,
+                tmdbId: message.mediaContext.tmdbId,
+                title: message.mediaContext.title.slice(0, 200),
+                year:
+                  typeof message.mediaContext.year === "string" &&
+                  /^\d{4}$/.test(message.mediaContext.year)
+                    ? message.mediaContext.year
+                    : undefined,
+              }
+            : undefined,
         cards: Array.isArray(message.cards)
           ? message.cards
               .filter(
@@ -293,23 +325,27 @@ const RatingChip = ({
     target="_blank"
     rel="noreferrer"
     title={label}
-    className="inline-flex items-center gap-1 border border-gray-700 bg-gray-900 px-2 py-1 text-xs font-bold text-gray-200 transition hover:border-gray-500 hover:text-white"
+    className="relative z-20 inline-flex items-center gap-1 border border-gray-700 bg-gray-900 px-2 py-1 text-xs font-bold text-gray-200 transition hover:border-gray-500 hover:text-white"
   >
     <span className="flex h-4 w-4 items-center justify-center">{icon}</span>
     <span>{value}</span>
   </a>
 );
 
-const MediaCard = ({ card }: { card: MediaCardData }) => {
+const MediaCard = ({
+  card,
+  ratings,
+  onPrepareAgain,
+}: {
+  card: MediaCardData;
+  ratings?: RatingResponse | RTRating | null;
+  onPrepareAgain?: (card: MediaCardData) => void;
+}) => {
   const [requestState, setRequestState] = useState<
     "idle" | "submitting" | "done" | "error"
   >("idle");
   const [requestMessage, setRequestMessage] = useState("");
-  const ratingsEndpoint =
-    card.mediaType === "movie"
-      ? `/api/v1/movie/${card.tmdbId}/ratingscombined`
-      : `/api/v1/tv/${card.tmdbId}/ratings`;
-  const { data: ratings } = useSWR<RatingResponse | RTRating>(ratingsEndpoint);
+  const [requestExpired, setRequestExpired] = useState(false);
   const rtRating =
     card.mediaType === "movie"
       ? (ratings as RatingResponse | undefined)?.rt
@@ -319,9 +355,33 @@ const MediaCard = ({ card }: { card: MediaCardData }) => {
       ? (ratings as RatingResponse | undefined)?.imdb
       : undefined;
 
+  useEffect(() => {
+    if (!card.request) return;
+    const expiresAt = Date.parse(card.request.expiresAt);
+    if (!Number.isFinite(expiresAt)) {
+      setRequestExpired(true);
+      return;
+    }
+
+    const updateExpired = () => setRequestExpired(Date.now() >= expiresAt);
+    updateExpired();
+    const timeout = window.setTimeout(
+      updateExpired,
+      Math.max(0, expiresAt - Date.now())
+    );
+    return () => window.clearTimeout(timeout);
+  }, [card.request]);
+
   const submitRequest = async () => {
-    if (!card.request || requestState !== "idle") return;
+    if (
+      !card.request ||
+      requestExpired ||
+      requestState === "submitting" ||
+      requestState === "done"
+    )
+      return;
     setRequestState("submitting");
+    setRequestMessage("");
     try {
       const csrfToken = getCsrfToken();
       const response = await fetch("/api/v1/chat/request", {
@@ -337,7 +397,10 @@ const MediaCard = ({ card }: { card: MediaCardData }) => {
         message?: string;
         error?: string;
       };
-      if (!response.ok) throw new Error(body.error ?? "Request failed.");
+      if (!response.ok) {
+        if (response.status !== 429) setRequestExpired(true);
+        throw new Error(body.error ?? "Request failed.");
+      }
       setRequestMessage(body.message ?? "Request submitted.");
       setRequestState("done");
     } catch (error) {
@@ -387,38 +450,38 @@ const MediaCard = ({ card }: { card: MediaCardData }) => {
 
   return (
     <article
-      className={`flex h-full min-w-0 flex-col overflow-hidden border-2 bg-gray-900 ${status.border}`}
+      className={`relative flex h-full min-w-0 cursor-pointer flex-col overflow-hidden border-2 bg-gray-900 transition focus-within:ring-2 focus-within:ring-indigo-400 hover:bg-gray-800 ${status.border}`}
     >
+      <Link href={card.href}>
+        <a
+          className="absolute inset-0 z-10"
+          aria-label={`Open ${card.title}`}
+        />
+      </Link>
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-gray-800">
-        <Link href={card.href}>
-          <a className="absolute inset-0 block">
-            {card.posterPath ? (
-              <CachedImage
-                src={`https://image.tmdb.org/t/p/w500_and_h750_face${card.posterPath}`}
-                alt={`${card.title} poster`}
-                layout="fill"
-                objectFit="cover"
-              />
-            ) : (
-              <span className="flex h-full items-center justify-center text-gray-600">
-                <FilmIcon className="h-12 w-12" />
-              </span>
-            )}
-          </a>
-        </Link>
+        {card.posterPath ? (
+          <CachedImage
+            src={`https://image.tmdb.org/t/p/w300_and_h450_face${card.posterPath}`}
+            alt={`${card.title} poster`}
+            layout="fill"
+            objectFit="cover"
+          />
+        ) : (
+          <span className="flex h-full items-center justify-center text-gray-600">
+            <FilmIcon className="h-12 w-12" />
+          </span>
+        )}
         <span
-          className={`absolute left-2 top-2 z-10 inline-flex items-center gap-1.5 border px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wide shadow-lg ${status.badge}`}
+          className={`pointer-events-none absolute left-2 top-2 z-20 inline-flex items-center gap-1.5 border px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wide shadow-lg ${status.badge}`}
         >
           {status.icon}
           {status.label}
         </span>
       </div>
       <div className="flex min-w-0 flex-1 flex-col p-3">
-        <Link href={card.href}>
-          <a className="line-clamp-2 text-base font-bold leading-tight text-gray-100 hover:text-indigo-400">
-            {card.title}
-          </a>
-        </Link>
+        <h3 className="m-0 text-base font-bold leading-tight text-gray-100 line-clamp-2">
+          {card.title}
+        </h3>
         <div className="mt-1 text-xs uppercase tracking-wide text-gray-500">
           {card.year ?? "Year unknown"} ·{" "}
           {card.mediaType === "movie" ? "Movie" : "Series"}
@@ -470,23 +533,41 @@ const MediaCard = ({ card }: { card: MediaCardData }) => {
           ) : null}
         </div>
         {card.overview && (
-          <p className="line-clamp-3 mt-3 text-xs leading-relaxed text-gray-400">
-            {card.overview}
-          </p>
+          <div className="mt-3">
+            <p className="text-xs leading-relaxed text-gray-400 line-clamp-3">
+              {card.overview}
+            </p>
+            <Link href={card.href}>
+              <a className="relative z-20 mt-1 inline-block text-xs font-bold text-indigo-400 hover:text-indigo-300">
+                Show more →
+              </a>
+            </Link>
+          </div>
         )}
         {card.request && requestState !== "done" && (
           <>
-            <p className="mt-3 text-xs text-gray-500">{card.request.note}</p>
+            <p className="mt-3 text-xs text-gray-500">
+              {requestExpired
+                ? "This confirmation expired. Prepare a fresh one to continue."
+                : card.request.note}
+            </p>
             <button
               type="button"
-              onClick={submitRequest}
-              disabled={
-                requestState === "submitting" || requestState === "error"
+              onClick={() =>
+                requestExpired ? onPrepareAgain?.(card) : submitRequest()
               }
-              className="mt-3 w-full border border-indigo-500 bg-indigo-900 px-3 py-2 text-xs font-bold uppercase tracking-wide text-indigo-200 hover:bg-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={
+                requestState === "submitting" ||
+                (requestExpired && !onPrepareAgain)
+              }
+              className="relative z-20 mt-3 w-full border border-indigo-500 bg-indigo-900 px-3 py-2 text-xs font-bold uppercase tracking-wide text-indigo-200 hover:bg-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {requestState === "submitting"
                 ? "Submitting…"
+                : requestExpired
+                ? "Prepare again"
+                : requestState === "error"
+                ? "Try again"
                 : card.request.label}
             </button>
           </>
@@ -500,40 +581,66 @@ const MediaCard = ({ card }: { card: MediaCardData }) => {
             {requestMessage}
           </p>
         )}
-        <Link href={card.href}>
-          <a className="mt-auto block pt-4 text-center text-xs font-bold uppercase tracking-wide text-gray-400 hover:text-indigo-400">
-            {effectiveStatus === "available" || effectiveStatus === "partial"
-              ? "Open to watch"
-              : effectiveStatus === "pending" ||
-                effectiveStatus === "processing"
-              ? "View status"
-              : "Open to request"}
-          </a>
-        </Link>
       </div>
     </article>
   );
 };
 
-const MediaCards = ({ cards }: { cards?: MediaCardData[] }) =>
-  cards?.length ? (
-    <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+const MediaCards = ({
+  cards,
+  onPrepareAgain,
+}: {
+  cards?: MediaCardData[];
+  onPrepareAgain?: (card: MediaCardData) => void;
+}) => {
+  const ratingItems = cards
+    ?.slice(0, 4)
+    .map((card) => `${card.mediaType}:${card.tmdbId}`)
+    .join(",");
+  const ratingsEndpoint = ratingItems
+    ? `/api/v1/chat/ratings?items=${encodeURIComponent(ratingItems)}`
+    : null;
+  const { data } = useSWR<MediaRatingsResponse>(ratingsEndpoint);
+
+  return cards?.length ? (
+    <div className="mt-4 grid max-w-3xl gap-4 sm:grid-cols-2">
       {cards.map((card) => (
         <MediaCard
           key={`${card.mediaType}:${card.tmdbId}:${card.request?.token ?? ""}`}
           card={card}
+          ratings={data?.ratings[`${card.mediaType}:${card.tmdbId}`]}
+          onPrepareAgain={onPrepareAgain}
         />
       ))}
     </div>
   ) : null;
+};
 
 const Markdown = ({ content }: { content: string }) => (
   <ReactMarkdown
     skipHtml
+    remarkPlugins={[remarkGfm]}
     className="prose prose-invert max-w-none break-words text-sm text-gray-200 prose-headings:text-gray-100 prose-a:text-indigo-400 prose-code:text-yellow-400 prose-pre:overflow-x-auto prose-pre:border prose-pre:border-gray-700 prose-pre:bg-gray-900 sm:text-base"
     components={{
       a: ({ node: _node, ...props }) => (
         <a {...props} target="_blank" rel="noreferrer" />
+      ),
+      table: ({ node: _node, ...props }) => (
+        <div className="my-4 overflow-x-auto border border-gray-700 bg-gray-900">
+          <table {...props} className="m-0 min-w-full text-left text-sm" />
+        </div>
+      ),
+      th: ({ node: _node, ...props }) => (
+        <th
+          {...props}
+          className="border-b border-gray-600 bg-gray-800 px-3 py-2 font-bold text-gray-100"
+        />
+      ),
+      td: ({ node: _node, ...props }) => (
+        <td
+          {...props}
+          className="border-b border-gray-800 px-3 py-2 align-top text-gray-300"
+        />
       ),
     }}
   >
@@ -541,7 +648,13 @@ const Markdown = ({ content }: { content: string }) => (
   </ReactMarkdown>
 );
 
-const Message = ({ message }: { message: ChatMessage }) => {
+const Message = ({
+  message,
+  onPrepareAgain,
+}: {
+  message: ChatMessage;
+  onPrepareAgain?: (card: MediaCardData) => void;
+}) => {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -553,6 +666,26 @@ const Message = ({ message }: { message: ChatMessage }) => {
   if (message.role === "user") {
     return (
       <article className="ml-auto max-w-3xl border-r-2 border-indigo-500 bg-gray-800 px-4 py-3 text-right text-sm text-gray-100 sm:text-base">
+        {message.mediaContext && (
+          <Link
+            href={`/${message.mediaContext.mediaType}/${message.mediaContext.tmdbId}`}
+          >
+            <a className="mb-2 ml-auto flex w-fit max-w-full items-center gap-2 border border-gray-700 bg-gray-900 px-2.5 py-1.5 text-left text-xs text-gray-400 transition hover:border-indigo-500 hover:text-gray-200">
+              <FilmIcon className="h-4 w-4 shrink-0 text-indigo-400" />
+              <span className="truncate font-bold text-gray-200">
+                {message.mediaContext.title}
+              </span>
+              <span className="shrink-0 uppercase tracking-wide text-gray-500">
+                {message.mediaContext.year
+                  ? `${message.mediaContext.year} · `
+                  : ""}
+                {message.mediaContext.mediaType === "movie"
+                  ? "Movie"
+                  : "Series"}
+              </span>
+            </a>
+          </Link>
+        )}
         <div className="whitespace-pre-wrap break-words">{message.content}</div>
       </article>
     );
@@ -561,7 +694,7 @@ const Message = ({ message }: { message: ChatMessage }) => {
   return (
     <article className="group max-w-3xl border-l-2 border-gray-600 bg-gray-900 px-4 py-3">
       <Markdown content={message.content} />
-      <MediaCards cards={message.cards} />
+      <MediaCards cards={message.cards} onPrepareAgain={onPrepareAgain} />
       <button
         type="button"
         onClick={copy}
@@ -576,8 +709,10 @@ const Message = ({ message }: { message: ChatMessage }) => {
 };
 
 const AiChat = () => {
+  const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [draftMediaContext, setDraftMediaContext] = useState<MediaContext>();
   const [streaming, setStreaming] = useState(false);
   const [streamingAnswer, setStreamingAnswer] = useState("");
   const [streamingCards, setStreamingCards] = useState<MediaCardData[]>([]);
@@ -596,12 +731,14 @@ const AiChat = () => {
   const reasoningRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const controllerRef = useRef<AbortController>();
+  const abortIntentRef = useRef<"stop" | "reset">();
   const followStreamRef = useRef(true);
   const mountedRef = useRef(true);
   const answerTextRef = useRef("");
   const answerBufferRef = useRef("");
   const reasoningBufferRef = useRef("");
   const frameRef = useRef<number>();
+  const mediaHandoffStartedRef = useRef(false);
   const hasAnswerRef = useRef(false);
   const cardsRef = useRef<MediaCardData[]>([]);
   const blockedByFailedTurn =
@@ -622,6 +759,7 @@ const AiChat = () => {
     });
     return () => {
       mountedRef.current = false;
+      abortIntentRef.current = "reset";
       controllerRef.current?.abort();
       if (frameRef.current) {
         cancelAnimationFrame(frameRef.current);
@@ -667,9 +805,17 @@ const AiChat = () => {
 
   useEffect(() => {
     if (!streaming && !blockedByFailedTurn) {
-      requestAnimationFrame(() =>
-        composerRef.current?.focus({ preventScroll: true })
-      );
+      requestAnimationFrame(() => {
+        const activeElement = document.activeElement;
+        if (
+          !activeElement ||
+          activeElement === document.body ||
+          activeElement === document.documentElement ||
+          activeElement === composerRef.current
+        ) {
+          composerRef.current?.focus({ preventScroll: true });
+        }
+      });
     }
   }, [blockedByFailedTurn, streaming]);
 
@@ -680,18 +826,18 @@ const AiChat = () => {
         blockedByFailedTurn ||
         event.metaKey ||
         event.ctrlKey ||
-        event.altKey
+        event.altKey ||
+        event.defaultPrevented
       ) {
         return;
       }
       const target = event.target as HTMLElement | null;
-      const isEditable =
-        target?.isContentEditable ||
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        target instanceof HTMLButtonElement;
-      if (!isEditable && (event.key === "/" || event.key === "Enter")) {
+      const interactiveTarget = target?.closest(
+        'a[href], button, input, textarea, select, summary, [contenteditable="true"], [role="button"], [role="link"], [tabindex]:not([tabindex="-1"])'
+      );
+      const isInteractive =
+        interactiveTarget && interactiveTarget.tagName !== "MAIN";
+      if (!isInteractive && (event.key === "/" || event.key === "Enter")) {
         event.preventDefault();
         composerRef.current?.focus({ preventScroll: true });
       }
@@ -774,6 +920,7 @@ const AiChat = () => {
     async (requestMessages: ChatMessage[]) => {
       const controller = new AbortController();
       controllerRef.current = controller;
+      abortIntentRef.current = undefined;
       answerTextRef.current = "";
       answerBufferRef.current = "";
       reasoningBufferRef.current = "";
@@ -805,9 +952,17 @@ const AiChat = () => {
             ...(csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
           },
           body: JSON.stringify({
-            messages: requestMessages.map(({ role, content }) => ({
-              role,
-              content,
+            messages: requestMessages.map((message) => ({
+              role: message.role,
+              content: message.content,
+              ...(message.mediaContext
+                ? {
+                    mediaContext: {
+                      mediaType: message.mediaContext.mediaType,
+                      tmdbId: message.mediaContext.tmdbId,
+                    },
+                  }
+                : {}),
             })),
           }),
           signal: controller.signal,
@@ -894,13 +1049,41 @@ const AiChat = () => {
         }
       } catch (streamError) {
         if (mountedRef.current) {
-          setError(
-            controller.signal.aborted
-              ? "Generation stopped."
-              : streamError instanceof Error
-              ? streamError.message
-              : "Qwen is currently unavailable."
-          );
+          if (controller.signal.aborted && abortIntentRef.current === "stop") {
+            flushBuffers();
+            const partialAnswer = answerTextRef.current.trim();
+            if (partialAnswer) {
+              const stoppedMessages = [
+                ...requestMessages,
+                {
+                  id: createId(),
+                  role: "assistant" as const,
+                  content: partialAnswer,
+                  cards: cardsRef.current.length ? cardsRef.current : undefined,
+                },
+              ];
+              setMessages(stoppedMessages);
+              saveMessages(stoppedMessages);
+              setContextNotice("Generation stopped; partial answer kept.");
+            } else {
+              const previousMessages = requestMessages.slice(0, -1);
+              const stoppedPrompt = requestMessages[requestMessages.length - 1];
+              setMessages(previousMessages);
+              saveMessages(previousMessages);
+              setDraft(stoppedPrompt?.content ?? "");
+              setDraftMediaContext(stoppedPrompt?.mediaContext);
+              setContextNotice(
+                "Generation stopped before an answer; your prompt was restored."
+              );
+            }
+            setError("");
+          } else if (!controller.signal.aborted) {
+            setError(
+              streamError instanceof Error
+                ? streamError.message
+                : "Qwen is currently unavailable."
+            );
+          }
         }
       } finally {
         window.clearTimeout(wakingTimer);
@@ -911,13 +1094,19 @@ const AiChat = () => {
           setStreamingAnswer("");
           setStreamingCards([]);
         }
-        controllerRef.current = undefined;
+        if (controllerRef.current === controller) {
+          controllerRef.current = undefined;
+          abortIntentRef.current = undefined;
+        }
       }
     },
     [flushBuffers, processEvent]
   );
 
-  const sendContent = async (rawContent: string) => {
+  const sendContent = async (
+    rawContent: string,
+    mediaContext?: MediaContext
+  ) => {
     const content = rawContent.trim();
     if (
       !content ||
@@ -929,17 +1118,92 @@ const AiChat = () => {
 
     const nextMessages = [
       ...messages,
-      { id: createId(), role: "user" as const, content },
+      {
+        id: createId(),
+        role: "user" as const,
+        content,
+        mediaContext: mediaContext ?? draftMediaContext,
+      },
     ];
     setMessages(nextMessages);
     setDraft("");
+    setDraftMediaContext(undefined);
     if (composerRef.current) {
       composerRef.current.style.height = "auto";
     }
     await startStream(nextMessages);
   };
 
+  useEffect(() => {
+    if (!router.isReady || mediaHandoffStartedRef.current) return;
+
+    const mediaType = Array.isArray(router.query.mediaType)
+      ? router.query.mediaType[0]
+      : router.query.mediaType;
+    const rawTmdbId = Array.isArray(router.query.tmdbId)
+      ? router.query.tmdbId[0]
+      : router.query.tmdbId;
+    const tmdbId = rawTmdbId ? Number(rawTmdbId) : 0;
+    const hasHandoffQuery = ["mediaType", "tmdbId", "title", "year"].some(
+      (key) => router.query[key] !== undefined
+    );
+    if (
+      (mediaType !== "movie" && mediaType !== "tv") ||
+      !rawTmdbId ||
+      !/^\d+$/.test(rawTmdbId) ||
+      !Number.isSafeInteger(tmdbId) ||
+      tmdbId <= 0
+    ) {
+      if (hasHandoffQuery) {
+        mediaHandoffStartedRef.current = true;
+        void router.replace("/ai", undefined, { shallow: true });
+      }
+      return;
+    }
+
+    mediaHandoffStartedRef.current = true;
+    const titleQuery = Array.isArray(router.query.title)
+      ? router.query.title[0]
+      : router.query.title;
+    const yearQuery = Array.isArray(router.query.year)
+      ? router.query.year[0]
+      : router.query.year;
+    const title = titleQuery?.trim().slice(0, 200);
+    const year = yearQuery && /^\d{4}$/.test(yearQuery) ? yearQuery : undefined;
+    const mediaContext: MediaContext = {
+      mediaType,
+      tmdbId,
+      title:
+        title || `${mediaType === "movie" ? "Movie" : "Series"} #${rawTmdbId}`,
+      year,
+    };
+    const initialMessages: ChatMessage[] = [
+      {
+        id: createId(),
+        role: "user",
+        content: "Tell me about this.",
+        mediaContext,
+      },
+    ];
+
+    sessionStorage.removeItem(STORAGE_KEY);
+    setMessages(initialMessages);
+    setDraft("");
+    setDraftMediaContext(undefined);
+    void router.replace("/ai", undefined, { shallow: true });
+    void startStream(initialMessages);
+  }, [router, router.isReady, router.query, startStream]);
+
   const send = () => sendContent(draft);
+
+  const prepareAgain = (card: MediaCardData) => {
+    void sendContent("Prepare a fresh request confirmation for this title.", {
+      mediaType: card.mediaType,
+      tmdbId: card.tmdbId,
+      title: card.title,
+      year: card.year,
+    });
+  };
 
   const retry = () => {
     if (!streaming && messages[messages.length - 1]?.role === "user") {
@@ -947,13 +1211,18 @@ const AiChat = () => {
     }
   };
 
-  const stop = () => controllerRef.current?.abort();
+  const stop = () => {
+    abortIntentRef.current = "stop";
+    controllerRef.current?.abort();
+  };
 
   const newChat = () => {
+    abortIntentRef.current = "reset";
     controllerRef.current?.abort();
     sessionStorage.removeItem(STORAGE_KEY);
     setMessages([]);
     setDraft("");
+    setDraftMediaContext(undefined);
     setError("");
     setContextNotice("");
     setReasoning("");
@@ -1052,7 +1321,11 @@ const AiChat = () => {
         )}
 
         {messages.map((message) => (
-          <Message key={message.id} message={message} />
+          <Message
+            key={message.id}
+            message={message}
+            onPrepareAgain={streaming ? undefined : prepareAgain}
+          />
         ))}
 
         {contextNotice && (
@@ -1119,6 +1392,7 @@ const AiChat = () => {
             className="max-h-40 min-h-[2.75rem] flex-1 resize-none border-0 bg-transparent px-2 py-3 text-sm text-gray-100 placeholder:text-gray-600 focus:ring-0 disabled:cursor-not-allowed disabled:opacity-60 sm:text-base"
             onChange={(event) => {
               setDraft(event.target.value);
+              setDraftMediaContext(undefined);
               event.target.style.height = "auto";
               event.target.style.height = `${Math.min(
                 event.target.scrollHeight,

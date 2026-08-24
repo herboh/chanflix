@@ -3,6 +3,7 @@ import RTAudRotten from '@app/assets/rt_aud_rotten.svg';
 import RTFresh from '@app/assets/rt_fresh.svg';
 import RTRotten from '@app/assets/rt_rotten.svg';
 import TmdbLogo from '@app/assets/tmdb_logo.svg';
+import AskAiButton from '@app/components/AskAiButton';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
@@ -417,6 +418,12 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             media={data?.mediaInfo}
             isShowComplete={isComplete}
             is4kShowComplete={is4kComplete}
+          />
+          <AskAiButton
+            mediaType="tv"
+            tmdbId={data.id}
+            title={data.name}
+            year={data.firstAirDate?.slice(0, 4)}
           />
           {(data.mediaInfo?.status === MediaStatus.AVAILABLE ||
             data.mediaInfo?.status === MediaStatus.PARTIALLY_AVAILABLE ||

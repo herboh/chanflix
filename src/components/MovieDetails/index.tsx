@@ -4,6 +4,7 @@ import RTFresh from '@app/assets/rt_fresh.svg';
 import RTRotten from '@app/assets/rt_rotten.svg';
 import ImdbLogo from '@app/assets/services/imdb.svg';
 import TmdbLogo from '@app/assets/tmdb_logo.svg';
+import AskAiButton from '@app/components/AskAiButton';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
@@ -383,6 +384,12 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
             media={data.mediaInfo}
             tmdbId={data.id}
             onUpdate={() => revalidate()}
+          />
+          <AskAiButton
+            mediaType="movie"
+            tmdbId={data.id}
+            title={data.title}
+            year={data.releaseDate?.slice(0, 4)}
           />
           {(data.mediaInfo?.status === MediaStatus.AVAILABLE ||
             (settings.currentSettings.movie4kEnabled &&

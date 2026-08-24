@@ -1,14 +1,21 @@
-export const AI_CHAT_MAX_MESSAGES = 32;
+export const AI_CHAT_MAX_MESSAGES = 255;
+export const AI_CHAT_MAX_RETAINED_MESSAGES = 63;
 export const AI_CHAT_MAX_MESSAGE_CHARS = 16_000;
-export const AI_CHAT_MAX_TOTAL_CHARS = 64_000;
+export const AI_CHAT_MAX_TOTAL_CHARS = 240_000;
 export const AI_CHAT_DEFAULT_CONTEXT_TOKENS = 80_000;
 export const AI_CHAT_OUTPUT_RESERVE_TOKENS = 2_048;
 
 export type AiChatRole = "user" | "assistant";
 
+export interface AiChatMediaContext {
+  mediaType: "movie" | "tv";
+  tmdbId: number;
+}
+
 export interface AiChatMessage {
   role: AiChatRole;
   content: string;
+  mediaContext?: AiChatMediaContext;
 }
 
 export interface AiChatUpstreamEvent {
@@ -44,6 +51,10 @@ export const trimAiChatMessagesToBudget = (
   const kept = [...messages];
   const estimate = () =>
     estimateAiChatTokens(JSON.stringify({ fixedPayload, messages: kept }));
+
+  while (kept.length > AI_CHAT_MAX_RETAINED_MESSAGES) {
+    kept.splice(0, Math.min(2, kept.length - 1));
+  }
 
   while (kept.length > 1 && estimate() > maxInputTokens) {
     kept.splice(0, Math.min(2, kept.length - 1));
@@ -108,7 +119,35 @@ export const validateAiChatMessages = (value: unknown): AiChatMessage[] => {
       );
     }
 
-    return { role: expectedRole, content };
+    let mediaContext: AiChatMediaContext | undefined;
+    if (candidate.mediaContext !== undefined) {
+      if (
+        expectedRole !== "user" ||
+        !candidate.mediaContext ||
+        typeof candidate.mediaContext !== "object"
+      ) {
+        throw new AiChatValidationError("Invalid media context.");
+      }
+      const context = candidate.mediaContext as Record<string, unknown>;
+      if (
+        (context.mediaType !== "movie" && context.mediaType !== "tv") ||
+        typeof context.tmdbId !== "number" ||
+        !Number.isInteger(context.tmdbId) ||
+        context.tmdbId <= 0
+      ) {
+        throw new AiChatValidationError("Invalid media context.");
+      }
+      mediaContext = {
+        mediaType: context.mediaType,
+        tmdbId: context.tmdbId,
+      };
+    }
+
+    return {
+      role: expectedRole,
+      content,
+      ...(mediaContext ? { mediaContext } : {}),
+    };
   });
 
   if (messages[messages.length - 1].role !== "user") {

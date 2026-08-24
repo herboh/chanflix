@@ -36,12 +36,14 @@ import {
   trimAiChatMessagesToBudget,
   validateAiChatMessages,
 } from '@server/lib/aiChat';
+import { classifyAiToolOutcome } from '@server/lib/aiTrace';
 import {
   AI_AGENT_TOOLS,
   aiPersonCreditMatchesRole,
   consumeRequestConfirmation,
   createRequestConfirmation,
   evaluateAiRequestPolicy,
+  filterAndRankAiLibraryEntries,
   finalizeAiMediaCards,
   rankAiMediaCards,
   resolveAiTitleMatch,
@@ -136,12 +138,20 @@ const tests: TestCase[] = [
     run: () => {
       assert.deepEqual(
         validateAiChatMessages([
-          { role: 'user', content: ' Hello ' },
+          {
+            role: 'user',
+            content: ' Hello ',
+            mediaContext: { mediaType: 'movie', tmdbId: 123 },
+          },
           { role: 'assistant', content: 'Hi.' },
           { role: 'user', content: 'Continue.' },
         ]),
         [
-          { role: 'user', content: 'Hello' },
+          {
+            role: 'user',
+            content: 'Hello',
+            mediaContext: { mediaType: 'movie', tmdbId: 123 },
+          },
           { role: 'assistant', content: 'Hi.' },
           { role: 'user', content: 'Continue.' },
         ]
@@ -165,6 +175,26 @@ const tests: TestCase[] = [
       assert.throws(() =>
         validateAiChatMessages([
           { role: 'user', content: 'x'.repeat(16_001) },
+        ])
+      );
+      assert.throws(() =>
+        validateAiChatMessages([
+          {
+            role: 'user',
+            content: 'Movie',
+            mediaContext: { mediaType: 'movie', tmdbId: '123' },
+          },
+        ])
+      );
+      assert.throws(() =>
+        validateAiChatMessages([
+          { role: 'user', content: 'One' },
+          {
+            role: 'assistant',
+            content: 'Two',
+            mediaContext: { mediaType: 'tv', tmdbId: 456 },
+          },
+          { role: 'user', content: 'Three' },
         ])
       );
     },
@@ -239,6 +269,28 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'AI traces classify normalized tool outcomes without storing content',
+    run: () => {
+      assert.equal(
+        classifyAiToolOutcome(
+          JSON.stringify({
+            ok: false,
+            code: 'clarification_required',
+            message: 'Choose one.',
+          })
+        ),
+        'clarification_required'
+      );
+      assert.equal(
+        classifyAiToolOutcome(
+          JSON.stringify({ ok: true, code: 'confirmation_ready' })
+        ),
+        'confirmation_ready'
+      );
+      assert.equal(classifyAiToolOutcome('not-json'), 'invalid_result');
+    },
+  },
+  {
     name: 'AI chat trims complete old turns to a conservative token budget',
     run: () => {
       assert.equal(estimateAiChatTokens('123456'), 2);
@@ -255,6 +307,28 @@ const tests: TestCase[] = [
       assert.deepEqual(fitted.messages, [messages[2]]);
       assert.equal(fitted.droppedMessages, 2);
       assert.ok(fitted.estimatedTokens <= 30);
+    },
+  },
+  {
+    name: 'AI chat caps retained history without breaking turn pairs',
+    run: () => {
+      const messages = Array.from({ length: 65 }, (_, index) => ({
+        role: (index % 2 === 0 ? 'user' : 'assistant') as
+          | 'user'
+          | 'assistant',
+        content: `message-${index}`,
+      }));
+      const fitted = trimAiChatMessagesToBudget(
+        messages,
+        { system: 'short' },
+        100_000
+      );
+      assert.equal(fitted.messages.length, 63);
+      assert.equal(fitted.droppedMessages, 2);
+      assert.equal(fitted.messages[0].content, 'message-2');
+      assert.equal(fitted.messages.at(-1)?.content, 'message-64');
+      assert.equal(fitted.messages[0].role, 'user');
+      assert.equal(fitted.messages.at(-1)?.role, 'user');
     },
   },
   {
@@ -300,13 +374,16 @@ const tests: TestCase[] = [
       const finalized = finalizeAiMediaCards([
         card('One', 1),
         card('Two', 2),
+        { ...card('One updated', 50), tmdbId: 1 },
         card('Three', 3),
         card('Four', 4),
         card('Five', 5),
-        { ...card('Five updated', 50), tmdbId: 5 },
       ]);
       assert.equal(finalized.length, 4);
-      assert.equal(finalized[0].title, 'Five updated');
+      assert.deepEqual(
+        finalized.map((item) => item.title),
+        ['One updated', 'Two', 'Three', 'Four']
+      );
       assert.equal(
         new Set(finalized.map((item) => item.tmdbId)).size,
         finalized.length
@@ -322,15 +399,97 @@ const tests: TestCase[] = [
     },
   },
   {
-    name: 'AI agent exposes bounded person, Plex, and request tools',
+    name: 'AI library filtering considers the full cache and ranks deterministically',
+    run: () => {
+      const entry = (
+        title: string,
+        options: {
+          rating: number;
+          votes: number;
+          genre: string;
+          runtime: number;
+          status?: 'available' | 'partial';
+          addedAt: string;
+        }
+      ) => ({
+        card: {
+          kind: 'media' as const,
+          mediaType: 'movie' as const,
+          tmdbId: options.votes,
+          title,
+          year: '2000',
+          genres: [options.genre],
+          runtimeMinutes: options.runtime,
+          voteAverage: options.rating,
+          voteCount: options.votes,
+          status: options.status ?? ('available' as const),
+          href: `/movie/${options.votes}`,
+        },
+        mediaAddedAt: new Date(options.addedAt),
+      });
+      const ranked = filterAndRankAiLibraryEntries(
+        [
+          entry('Recent but weak', {
+            rating: 7.1,
+            votes: 600,
+            genre: 'Drama',
+            runtime: 100,
+            addedAt: '2026-08-20',
+          }),
+          entry('Older cached classic', {
+            rating: 8.4,
+            votes: 20_000,
+            genre: 'Drama',
+            runtime: 110,
+            addedAt: '2020-01-01',
+          }),
+          entry('Excluded horror', {
+            rating: 9,
+            votes: 30_000,
+            genre: 'Horror',
+            runtime: 90,
+            addedAt: '2026-08-21',
+          }),
+          entry('Too long', {
+            rating: 8.8,
+            votes: 25_000,
+            genre: 'Drama',
+            runtime: 180,
+            addedAt: '2026-08-22',
+          }),
+        ],
+        {
+          operation: 'discover',
+          media_type: 'movie',
+          availability: 'ready',
+          genres: ['Drama'],
+          exclude_genres: ['Horror'],
+          min_rating: 7,
+          max_runtime_minutes: 120,
+          year_from: 1980,
+          year_to: 2026,
+          sort: 'quality',
+          limit: 3,
+        }
+      );
+      assert.deepEqual(
+        ranked.map((item) => item.card.title),
+        ['Older cached classic', 'Recent but weak']
+      );
+    },
+  },
+  {
+    name: 'AI agent exposes six consolidated bounded tools',
     run: () => {
       const toolNames = AI_AGENT_TOOLS.map((tool) => tool.function.name);
-      assert.ok(toolNames.includes('lookup_person'));
-      assert.ok(toolNames.includes('search_people'));
-      assert.ok(toolNames.includes('get_person_filmography'));
-      assert.ok(toolNames.includes('get_plex_library_summary'));
-      assert.ok(toolNames.includes('display_titles'));
-      assert.ok(toolNames.includes('prepare_title_request'));
+      assert.deepEqual(toolNames, [
+        'lookup_media',
+        'lookup_person',
+        'browse_library',
+        'check_activity',
+        'request_media',
+        'search_web',
+      ]);
 
       const director = {
         job: 'Director',
@@ -436,6 +595,62 @@ const tests: TestCase[] = [
       assert.equal(
         consumeRequestConfirmation(confirmation.token, 7, now),
         undefined
+      );
+
+      const movieConfirmation = createRequestConfirmation(
+        {
+          userId: 9,
+          mediaType: 'movie',
+          tmdbId: 603,
+          forcePending: false,
+        },
+        now
+      );
+      const tvConfirmation = createRequestConfirmation(
+        {
+          userId: 9,
+          mediaType: 'tv',
+          tmdbId: 60574,
+          seasons: [1],
+          forcePending: true,
+        },
+        now
+      );
+      assert.equal(
+        consumeRequestConfirmation(movieConfirmation.token, 9, now)?.tmdbId,
+        603
+      );
+      assert.equal(
+        consumeRequestConfirmation(tvConfirmation.token, 9, now)?.tmdbId,
+        60574
+      );
+
+      const replaced = createRequestConfirmation(
+        {
+          userId: 10,
+          mediaType: 'movie',
+          tmdbId: 949,
+          forcePending: false,
+        },
+        now
+      );
+      const replacement = createRequestConfirmation(
+        {
+          userId: 10,
+          mediaType: 'movie',
+          tmdbId: 949,
+          forcePending: true,
+        },
+        now
+      );
+      assert.equal(
+        consumeRequestConfirmation(replaced.token, 10, now),
+        undefined
+      );
+      assert.equal(
+        consumeRequestConfirmation(replacement.token, 10, now)
+          ?.forcePending,
+        true
       );
 
       const expired = createRequestConfirmation(
