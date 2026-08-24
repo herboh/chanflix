@@ -592,8 +592,6 @@ const AiChat = () => {
   const [suggestionOrder, setSuggestionOrder] = useState(() =>
     AI_CHAT_SUGGESTIONS.map((_, index) => index)
   );
-  const [suggestionOffset, setSuggestionOffset] = useState(0);
-  const [suggestionsPaused, setSuggestionsPaused] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const reasoningRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -630,16 +628,6 @@ const AiChat = () => {
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (messages.length || streaming || suggestionsPaused) return;
-    const timer = window.setInterval(() => {
-      setSuggestionOffset(
-        (current) => (current + 4) % AI_CHAT_SUGGESTIONS.length
-      );
-    }, 12_000);
-    return () => window.clearInterval(timer);
-  }, [messages.length, streaming, suggestionsPaused]);
 
   const flushBuffers = useCallback(() => {
     frameRef.current = undefined;
@@ -990,11 +978,9 @@ const AiChat = () => {
       : waking
       ? "Waking Qwen…"
       : "Connecting…";
-  const visibleSuggestions = Array.from({ length: 4 }, (_, index) => {
-    const orderedIndex =
-      suggestionOrder[(suggestionOffset + index) % suggestionOrder.length];
-    return AI_CHAT_SUGGESTIONS[orderedIndex];
-  });
+  const visibleSuggestions = suggestionOrder
+    .slice(0, 3)
+    .map((index) => AI_CHAT_SUGGESTIONS[index]);
   return (
     <div className="mx-auto flex h-[calc(100vh-10rem)] max-w-5xl flex-col sm:h-[calc(100vh-7rem)]">
       <header className="flex items-center justify-between border-b-2 border-gray-700 py-3">
@@ -1032,34 +1018,25 @@ const AiChat = () => {
               <p className="mt-1 text-sm text-gray-500">
                 One private, session-only conversation with Qwen.
               </p>
-              <div
-                className="mt-7"
-                onMouseEnter={() => setSuggestionsPaused(true)}
-                onMouseLeave={() => setSuggestionsPaused(false)}
-                onFocusCapture={() => setSuggestionsPaused(true)}
-                onBlurCapture={() => setSuggestionsPaused(false)}
-              >
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-gray-600">
+              <div className="mt-7 overflow-hidden opacity-75">
+                <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.22em] text-gray-700">
                   Try asking
                 </p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {visibleSuggestions.map((item, index) => (
+                <div className="space-y-1.5">
+                  {visibleSuggestions.map((item) => (
                     <button
-                      key={`${
-                        suggestionOrder[
-                          (suggestionOffset + index) % suggestionOrder.length
-                        ]
-                      }:${suggestionOffset}`}
+                      key={item.text}
                       type="button"
                       onClick={() => sendContent(item.text)}
-                      className="group border border-gray-800 bg-gray-900/60 px-4 py-3 text-left text-sm leading-relaxed text-gray-500 transition-colors hover:border-gray-600 hover:bg-gray-900 hover:text-gray-400 focus:border-[#fabd2f] focus:outline-none"
+                      title={item.text}
+                      className="group block w-full truncate border-l border-gray-800 bg-gradient-to-r from-gray-900/30 to-transparent px-3 py-2 text-left text-xs text-gray-600 transition-colors hover:border-gray-700 hover:text-gray-400 focus:border-[#fabd2f]/70 focus:outline-none"
                     >
                       {item.parts.map((part, partIndex) => (
                         <span
                           key={`${part.text}:${partIndex}`}
                           className={
                             part.variable
-                              ? "font-medium text-[#fabd2f] group-hover:text-[#ffd75f]"
+                              ? "font-medium text-[#fabd2f]/70 group-hover:text-[#fabd2f]"
                               : undefined
                           }
                         >
