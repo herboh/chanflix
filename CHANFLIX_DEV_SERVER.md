@@ -65,6 +65,22 @@ Use a non-production port so it does not collide with deployed Chanflix.
 HOST=0.0.0.0 PORT=5556 CONFIG_DIRECTORY=/tmp/chanflix-dev-config yarn dev
 ```
 
+For the optional AI chat and its conservative request policy:
+
+```sh
+AI_BASE_URL=http://192.168.1.2:8080/v1 \
+AI_MODEL=qwen-main \
+AI_REQUEST_MIN_RATING=6.5 \
+AI_REQUEST_MIN_VOTES=250 \
+AI_REQUEST_MAX_TV_SEASONS=1 \
+AI_REQUEST_MAX_TV_EPISODES=16 \
+HOST=0.0.0.0 PORT=5556 CONFIG_DIRECTORY=/tmp/chanflix-dev-config yarn dev
+```
+
+The policy can only force an AI-prepared request to remain pending. It never
+grants auto-approval or bypasses the requesting user's normal permissions and
+quotas.
+
 Then open from another LAN machine:
 
 ```text

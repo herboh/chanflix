@@ -15,6 +15,12 @@ export interface AiChatUpstreamEvent {
   finishReason?: string;
   done?: boolean;
   error?: string;
+  toolCall?: {
+    index: number;
+    id?: string;
+    name?: string;
+    arguments?: string;
+  };
 }
 
 export class AiChatValidationError extends Error {
@@ -153,6 +159,27 @@ const parseUpstreamData = (data: string): AiChatUpstreamEvent[] => {
   }
   if (typeof delta.content === "string" && delta.content) {
     events.push({ content: delta.content });
+  }
+  if (Array.isArray(delta.tool_calls)) {
+    for (const rawToolCall of delta.tool_calls) {
+      if (!rawToolCall || typeof rawToolCall !== "object") continue;
+      const toolCall = rawToolCall as Record<string, unknown>;
+      const fn =
+        toolCall.function && typeof toolCall.function === "object"
+          ? (toolCall.function as Record<string, unknown>)
+          : {};
+      if (typeof toolCall.index !== "number") continue;
+      events.push({
+        toolCall: {
+          index: toolCall.index,
+          ...(typeof toolCall.id === "string" ? { id: toolCall.id } : {}),
+          ...(typeof fn.name === "string" ? { name: fn.name } : {}),
+          ...(typeof fn.arguments === "string"
+            ? { arguments: fn.arguments }
+            : {}),
+        },
+      });
+    }
   }
   if (typeof choice.finish_reason === "string" && choice.finish_reason) {
     events.push({ finishReason: choice.finish_reason });
