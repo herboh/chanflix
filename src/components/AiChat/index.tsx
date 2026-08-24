@@ -58,6 +58,130 @@ interface ModelInfo {
   tokensPerSecond?: number;
 }
 
+interface PromptSuggestion {
+  text: string;
+  parts: { text: string; variable: boolean }[];
+}
+
+const variable = (text: string) => ({ text });
+
+const suggestion = (
+  ...parts: (string | ReturnType<typeof variable>)[]
+): PromptSuggestion => ({
+  text: parts
+    .map((part) => (typeof part === "string" ? part : part.text))
+    .join(""),
+  parts: parts.map((part) => ({
+    text: typeof part === "string" ? part : part.text,
+    variable: typeof part !== "string",
+  })),
+});
+
+const AI_CHAT_SUGGESTIONS: PromptSuggestion[] = [
+  suggestion("Is ", variable("Megalopolis"), " ready to watch on the server?"),
+  suggestion(
+    "Show me the metadata and poster for ",
+    variable("Heat (1995)"),
+    "."
+  ),
+  suggestion("Who directed ", variable("The Thing (1982)"), "?"),
+  suggestion("Who stars in ", variable("Phantom Thread"), "?"),
+  suggestion("What is the IMDb ID for ", variable("Mulholland Drive"), "?"),
+  suggestion("Is ", variable("Severance"), " on Plex?"),
+  suggestion(
+    "Compare availability for ",
+    variable("Dune (1984)"),
+    " and ",
+    variable("Dune (2021)"),
+    "."
+  ),
+  suggestion(
+    "Which ",
+    variable("Paul Thomas Anderson"),
+    " movies are on Plex?"
+  ),
+  suggestion("Show me ", variable("Robert De Niro"), " movies ready to watch."),
+  suggestion("What movies did ", variable("Céline Sciamma"), " direct?"),
+  suggestion(
+    "What are the best films written by ",
+    variable("Charlie Kaufman"),
+    "?"
+  ),
+  suggestion(
+    "Look up ",
+    variable("Tilda Swinton"),
+    " and show her essential films and biography."
+  ),
+  suggestion("Which ", variable("David Lynch"), " series do we have?"),
+  suggestion("Is ", variable("Tom Cruise"), " in ", variable("Magnolia"), "?"),
+  suggestion("How many ", variable("movies and series"), " are ready on Plex?"),
+  suggestion("What was added to the server ", variable("recently"), "?"),
+  suggestion(
+    "Show me three ",
+    variable("highly rated dramas"),
+    " ready on Plex."
+  ),
+  suggestion(
+    "Show me a few ",
+    variable("series ready to watch"),
+    " right now."
+  ),
+  suggestion(
+    "Find three ",
+    variable("horror movies rated 7+"),
+    " on the server."
+  ),
+  suggestion(
+    "Find a great ",
+    variable("comedy under 110 minutes"),
+    " on Plex."
+  ),
+  suggestion(
+    "Show me some ",
+    variable("high-brow science fiction"),
+    " ready to watch on Plex."
+  ),
+  suggestion(
+    "Help me choose a movie; ask ",
+    variable("one question at a time"),
+    "."
+  ),
+  suggestion(
+    "Tonight I want something ",
+    variable("tense, under two hours, no superheroes"),
+    "."
+  ),
+  suggestion(
+    "Recommend three movies like ",
+    variable("Parasite"),
+    " that are on the server."
+  ),
+  suggestion(
+    "Pick one ",
+    variable("foreign-language adventure movie"),
+    " from Plex that is ready to watch."
+  ),
+  suggestion("Request ", variable("Megalopolis"), " for me."),
+  suggestion("Download ", variable("Heat (1995)"), "."),
+  suggestion("Add ", variable("season 1 of Severance"), "."),
+  suggestion("Request ", variable("The Thing"), "—ask me which one if needed."),
+  suggestion("What is the status of ", variable("my recent requests"), "?"),
+  suggestion("What is ", variable("downloading right now"), "?"),
+  suggestion("Is ", variable("Dune"), " still downloading?"),
+  suggestion(
+    "Show posters for the three best ",
+    variable("PTA movies on Plex"),
+    "."
+  ),
+  suggestion(
+    variable("“Bush did 9/11…” is a terrible movie pitch."),
+    " Is ",
+    variable("Fahrenheit 9/11"),
+    " on Plex?"
+  ),
+  suggestion(variable("The downloads yearn for freedom"), "—what is stuck?"),
+];
+
 const STORAGE_KEY = "chanflix.ai.chat.v1";
 const MAX_MESSAGE_CHARS = 16_000;
 const DEFAULT_MODEL_INFO: ModelInfo = {
@@ -330,6 +454,11 @@ const AiChat = () => {
   const [error, setError] = useState("");
   const [contextNotice, setContextNotice] = useState("");
   const [modelInfo, setModelInfo] = useState<ModelInfo>(DEFAULT_MODEL_INFO);
+  const [suggestionOrder, setSuggestionOrder] = useState(() =>
+    AI_CHAT_SUGGESTIONS.map((_, index) => index)
+  );
+  const [suggestionOffset, setSuggestionOffset] = useState(0);
+  const [suggestionsPaused, setSuggestionsPaused] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const reasoningRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -347,6 +476,17 @@ const AiChat = () => {
 
   useEffect(() => {
     setMessages(restoreMessages());
+    setSuggestionOrder((current) => {
+      const shuffled = [...current];
+      for (let index = shuffled.length - 1; index > 0; index -= 1) {
+        const swapWith = Math.floor(Math.random() * (index + 1));
+        [shuffled[index], shuffled[swapWith]] = [
+          shuffled[swapWith],
+          shuffled[index],
+        ];
+      }
+      return shuffled;
+    });
     return () => {
       mountedRef.current = false;
       controllerRef.current?.abort();
@@ -355,6 +495,16 @@ const AiChat = () => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (messages.length || streaming || suggestionsPaused) return;
+    const timer = window.setInterval(() => {
+      setSuggestionOffset(
+        (current) => (current + 4) % AI_CHAT_SUGGESTIONS.length
+      );
+    }, 12_000);
+    return () => window.clearInterval(timer);
+  }, [messages.length, streaming, suggestionsPaused]);
 
   const flushBuffers = useCallback(() => {
     frameRef.current = undefined;
@@ -649,8 +799,8 @@ const AiChat = () => {
     [flushBuffers, processEvent]
   );
 
-  const send = async () => {
-    const content = draft.trim();
+  const sendContent = async (rawContent: string) => {
+    const content = rawContent.trim();
     if (
       !content ||
       streaming ||
@@ -670,6 +820,8 @@ const AiChat = () => {
     }
     await startStream(nextMessages);
   };
+
+  const send = () => sendContent(draft);
 
   const retry = () => {
     if (!streaming && messages[messages.length - 1]?.role === "user") {
@@ -708,6 +860,11 @@ const AiChat = () => {
       : waking
       ? "Waking Qwen…"
       : "Connecting…";
+  const visibleSuggestions = Array.from({ length: 4 }, (_, index) => {
+    const orderedIndex =
+      suggestionOrder[(suggestionOffset + index) % suggestionOrder.length];
+    return AI_CHAT_SUGGESTIONS[orderedIndex];
+  });
   return (
     <div className="mx-auto flex h-[calc(100vh-10rem)] max-w-5xl flex-col sm:h-[calc(100vh-7rem)]">
       <header className="flex items-center justify-between border-b-2 border-gray-700 py-3">
@@ -737,7 +894,7 @@ const AiChat = () => {
       >
         {messages.length === 0 && !streaming && (
           <div className="flex h-full min-h-[14rem] items-center justify-center text-center">
-            <div>
+            <div className="w-full max-w-3xl">
               <div className="mb-2 text-2xl text-indigo-400">_</div>
               <p className="font-bold uppercase tracking-wider text-gray-300">
                 Ask anything
@@ -745,6 +902,44 @@ const AiChat = () => {
               <p className="mt-1 text-sm text-gray-500">
                 One private, session-only conversation with Qwen.
               </p>
+              <div
+                className="mt-7"
+                onMouseEnter={() => setSuggestionsPaused(true)}
+                onMouseLeave={() => setSuggestionsPaused(false)}
+                onFocusCapture={() => setSuggestionsPaused(true)}
+                onBlurCapture={() => setSuggestionsPaused(false)}
+              >
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-gray-600">
+                  Try asking
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {visibleSuggestions.map((item, index) => (
+                    <button
+                      key={`${
+                        suggestionOrder[
+                          (suggestionOffset + index) % suggestionOrder.length
+                        ]
+                      }:${suggestionOffset}`}
+                      type="button"
+                      onClick={() => sendContent(item.text)}
+                      className="group border border-gray-800 bg-gray-900/60 px-4 py-3 text-left text-sm leading-relaxed text-gray-500 transition-colors hover:border-gray-600 hover:bg-gray-900 hover:text-gray-400 focus:border-[#fabd2f] focus:outline-none"
+                    >
+                      {item.parts.map((part, partIndex) => (
+                        <span
+                          key={`${part.text}:${partIndex}`}
+                          className={
+                            part.variable
+                              ? "font-medium text-[#fabd2f] group-hover:text-[#ffd75f]"
+                              : undefined
+                          }
+                        >
+                          {part.text}
+                        </span>
+                      ))}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}

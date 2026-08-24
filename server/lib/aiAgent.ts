@@ -240,7 +240,7 @@ export const AI_AGENT_TOOLS = [
   ),
   tool(
     "get_title",
-    "Get confirmed metadata and Chanflix availability for one exact movie or series.",
+    "Get confirmed metadata, availability, cast, directors, writers, and creators for one exact movie or series.",
     {
       media_type: { type: "string", enum: ["movie", "tv"] },
       tmdb_id: { type: "integer", minimum: 1 },
@@ -249,7 +249,7 @@ export const AI_AGENT_TOOLS = [
   ),
   tool(
     "lookup_person",
-    "Resolve an actor, director, writer, or other film person by name and return a small verified filmography in one call. Prefer this over separate person search and filmography calls; ambiguous names are returned for clarification.",
+    "Resolve an actor, director, writer, or other film person by name and return verified identity, biography, birth details, IMDb ID, and a small filmography in one call. Prefer this over separate person search and filmography calls; ambiguous names are returned for clarification.",
     {
       query: { type: "string", description: "Person name." },
       role: {
