@@ -1,0 +1,683 @@
+import TheMovieDb from "@server/api/themoviedb";
+import {
+  MediaRequestStatus,
+  MediaStatus,
+  MediaType,
+} from "@server/constants/media";
+import { getRepository } from "@server/datasource";
+import Media from "@server/entity/Media";
+import { MediaRequest } from "@server/entity/MediaRequest";
+import type { User } from "@server/entity/User";
+import downloadTracker from "@server/lib/downloadtracker";
+import { Permission } from "@server/lib/permissions";
+import logger from "@server/logger";
+import { mapMovieDetails } from "@server/models/Movie";
+import { mapSearchResults } from "@server/models/Search";
+import { mapTvDetails } from "@server/models/Tv";
+import { randomBytes } from "crypto";
+import { In } from "typeorm";
+import { z } from "zod";
+
+export const AI_AGENT_MAX_TOOL_ROUNDS = 4;
+export const AI_AGENT_MAX_CARDS = 8;
+export const AI_AGENT_MAX_TOOL_CALLS = 6;
+
+export type AiMediaType = "movie" | "tv";
+
+export interface AiMediaCard {
+  kind: "media";
+  mediaType: AiMediaType;
+  tmdbId: number;
+  title: string;
+  year?: string;
+  overview?: string;
+  posterPath?: string;
+  genres?: string[];
+  runtimeMinutes?: number;
+  voteAverage?: number;
+  voteCount?: number;
+  status: "available" | "partial" | "processing" | "pending" | "unknown";
+  href: string;
+  request?: {
+    token: string;
+    label: string;
+    expiresAt: string;
+    note: string;
+  };
+}
+
+export interface AiToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+export interface AiToolResult {
+  content: string;
+  cards?: AiMediaCard[];
+}
+
+export type PendingAiRequest = {
+  userId: number;
+  mediaType: AiMediaType;
+  tmdbId: number;
+  seasons?: number[];
+  forcePending: boolean;
+  expiresAt: number;
+};
+
+const pendingRequests = new Map<string, PendingAiRequest>();
+const REQUEST_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
+
+export interface AiRequestPolicyInput {
+  mediaType: AiMediaType;
+  voteAverage?: number;
+  voteCount?: number;
+  seasons?: number[];
+  selectedEpisodeCount?: number;
+}
+
+export interface AiRequestPolicyConfig {
+  minRating: number;
+  minVotes: number;
+  maxAutoApprovedTvSeasons: number;
+  maxAutoApprovedTvEpisodes: number;
+}
+
+const boundedEnvNumber = (
+  name: string,
+  fallback: number,
+  min: number,
+  max: number
+) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= min && value <= max
+    ? value
+    : fallback;
+};
+
+const getRequestPolicyConfig = (): AiRequestPolicyConfig => ({
+  minRating: boundedEnvNumber("AI_REQUEST_MIN_RATING", 6.5, 0, 10),
+  minVotes: boundedEnvNumber("AI_REQUEST_MIN_VOTES", 250, 0, 1_000_000),
+  maxAutoApprovedTvSeasons: boundedEnvNumber(
+    "AI_REQUEST_MAX_TV_SEASONS",
+    1,
+    1,
+    3
+  ),
+  maxAutoApprovedTvEpisodes: boundedEnvNumber(
+    "AI_REQUEST_MAX_TV_EPISODES",
+    16,
+    1,
+    100
+  ),
+});
+
+export const evaluateAiRequestPolicy = (
+  input: AiRequestPolicyInput,
+  config: AiRequestPolicyConfig = getRequestPolicyConfig()
+) => {
+  const reasons: string[] = [];
+  if ((input.voteAverage ?? 0) < config.minRating) {
+    reasons.push(`rating below ${config.minRating.toFixed(1)}`);
+  }
+  if ((input.voteCount ?? 0) < config.minVotes) {
+    reasons.push(`fewer than ${config.minVotes} ratings`);
+  }
+  if (input.mediaType === "tv") {
+    if (!input.seasons?.length) reasons.push("no explicit season");
+    if ((input.seasons?.length ?? 0) > config.maxAutoApprovedTvSeasons) {
+      reasons.push(`more than ${config.maxAutoApprovedTvSeasons} season`);
+    }
+    if (
+      input.selectedEpisodeCount === undefined ||
+      input.selectedEpisodeCount > config.maxAutoApprovedTvEpisodes
+    ) {
+      reasons.push(
+        input.selectedEpisodeCount === undefined
+          ? "episode count is unknown"
+          : `more than ${config.maxAutoApprovedTvEpisodes} episodes`
+      );
+    }
+  }
+  return { autoApprovalEligible: reasons.length === 0, reasons };
+};
+
+const mediaTypeSchema = z.enum(["movie", "tv"]);
+const searchSchema = z.object({
+  query: z.string().trim().min(1).max(120),
+  limit: z.number().int().min(1).max(8).default(5),
+});
+const titleSchema = z.object({
+  media_type: mediaTypeSchema,
+  tmdb_id: z.number().int().positive(),
+});
+const availableSchema = z.object({
+  media_type: z.enum(["movie", "tv", "either"]).default("either"),
+  genre: z.string().trim().max(60).optional(),
+  min_rating: z.number().min(0).max(10).default(0),
+  max_runtime_minutes: z.number().int().min(30).max(360).optional(),
+  limit: z.number().int().min(1).max(8).default(5),
+});
+const requestSchema = z.object({
+  media_type: mediaTypeSchema,
+  tmdb_id: z.number().int().positive(),
+  seasons: z.array(z.number().int().min(1).max(100)).max(3).optional(),
+});
+
+const tool = (
+  name: string,
+  description: string,
+  properties: Record<string, unknown>,
+  required: string[] = []
+) => ({
+  type: "function" as const,
+  function: {
+    name,
+    description,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties,
+      required,
+    },
+  },
+});
+
+export const AI_AGENT_TOOLS = [
+  tool(
+    "search_titles",
+    "Search the Chanflix/TMDB catalog for movies or series. Use this before assuming a title identity.",
+    {
+      query: { type: "string", description: "Title or concise search phrase." },
+      limit: { type: "integer", minimum: 1, maximum: 8 },
+    },
+    ["query"]
+  ),
+  tool(
+    "get_title",
+    "Get confirmed metadata and Chanflix availability for one exact movie or series.",
+    {
+      media_type: { type: "string", enum: ["movie", "tv"] },
+      tmdb_id: { type: "integer", minimum: 1 },
+    },
+    ["media_type", "tmdb_id"]
+  ),
+  tool(
+    "list_available_media",
+    "Find titles actually ready to watch on this Plex server. Useful for tailored recommendations.",
+    {
+      media_type: { type: "string", enum: ["movie", "tv", "either"] },
+      genre: { type: "string", description: "Optional genre name." },
+      min_rating: { type: "number", minimum: 0, maximum: 10 },
+      max_runtime_minutes: { type: "integer", minimum: 30, maximum: 360 },
+      limit: { type: "integer", minimum: 1, maximum: 8 },
+    }
+  ),
+  tool(
+    "find_something_to_watch",
+    "Return a small, factual candidate set from titles actually ready on this server after the conversation has established the user's taste. Never return more than three unless asked.",
+    {
+      media_type: { type: "string", enum: ["movie", "tv", "either"] },
+      genre: {
+        type: "string",
+        description: "Optional genre preference established in conversation.",
+      },
+      min_rating: { type: "number", minimum: 0, maximum: 10 },
+      max_runtime_minutes: { type: "integer", minimum: 30, maximum: 360 },
+      limit: { type: "integer", minimum: 1, maximum: 3 },
+    }
+  ),
+  tool(
+    "get_my_requests",
+    "Get the logged-in user's recent movie and series request status.",
+    { limit: { type: "integer", minimum: 1, maximum: 10 } }
+  ),
+  tool(
+    "get_download_status",
+    "Get active Radarr/Sonarr downloads. This tool is permission-gated and may refuse access.",
+    {}
+  ),
+  tool(
+    "prepare_request",
+    "Prepare, but do not execute, a Chanflix request. The user must confirm the returned button. Series are limited to at most three explicit seasons and default to season 1.",
+    {
+      media_type: { type: "string", enum: ["movie", "tv"] },
+      tmdb_id: { type: "integer", minimum: 1 },
+      seasons: {
+        type: "array",
+        maxItems: 3,
+        items: { type: "integer", minimum: 1, maximum: 100 },
+      },
+    },
+    ["media_type", "tmdb_id"]
+  ),
+];
+
+const statusName = (status?: MediaStatus): AiMediaCard["status"] => {
+  switch (status) {
+    case MediaStatus.AVAILABLE:
+      return "available";
+    case MediaStatus.PARTIALLY_AVAILABLE:
+      return "partial";
+    case MediaStatus.PROCESSING:
+      return "processing";
+    case MediaStatus.PENDING:
+      return "pending";
+    default:
+      return "unknown";
+  }
+};
+
+const cleanText = (value: string | undefined, max = 500) =>
+  value ? value.replace(/\s+/g, " ").trim().slice(0, max) : undefined;
+
+const cardFromResult = (result: {
+  id: number;
+  mediaType: string;
+  title?: string;
+  name?: string;
+  releaseDate?: string;
+  firstAirDate?: string;
+  overview?: string;
+  posterPath?: string;
+  voteAverage?: number;
+  voteCount?: number;
+  genres?: { name: string }[];
+  runtime?: number;
+  episodeRunTime?: number[];
+  mediaInfo?: Media;
+}): AiMediaCard | undefined => {
+  if (result.mediaType !== "movie" && result.mediaType !== "tv") return;
+  const title = result.title ?? result.name;
+  if (!title) return;
+
+  return {
+    kind: "media",
+    mediaType: result.mediaType,
+    tmdbId: result.id,
+    title,
+    year: (result.releaseDate ?? result.firstAirDate)?.slice(0, 4) || undefined,
+    overview: cleanText(result.overview),
+    posterPath: result.posterPath,
+    genres: result.genres?.map((genre) => genre.name).slice(0, 8),
+    runtimeMinutes: result.runtime ?? result.episodeRunTime?.[0],
+    voteAverage: result.voteAverage,
+    voteCount: result.voteCount,
+    status: statusName(result.mediaInfo?.status),
+    href: `/${result.mediaType}/${result.id}`,
+  };
+};
+
+const summarizeCards = (cards: AiMediaCard[]) =>
+  cards.map((card) => ({
+    mediaType: card.mediaType,
+    tmdbId: card.tmdbId,
+    title: card.title,
+    year: card.year,
+    rating: card.voteAverage,
+    voteCount: card.voteCount,
+    genres: card.genres,
+    runtimeMinutes: card.runtimeMinutes,
+    status: card.status,
+    overview: card.overview,
+  }));
+
+const parseArguments = (raw: string): unknown => {
+  if (raw.length > 4_000) throw new Error("Tool arguments are too large.");
+  try {
+    return JSON.parse(raw || "{}");
+  } catch (_error) {
+    throw new Error("Tool arguments were not valid JSON.");
+  }
+};
+
+const getDetailsCard = async (
+  mediaType: AiMediaType,
+  tmdbId: number
+): Promise<AiMediaCard> => {
+  const tmdb = new TheMovieDb();
+  const type = mediaType === "movie" ? MediaType.MOVIE : MediaType.TV;
+  const media = await Media.getMedia(tmdbId, type);
+
+  if (mediaType === "movie") {
+    const details = mapMovieDetails(
+      await tmdb.getMovie({ movieId: tmdbId }),
+      media
+    );
+    return cardFromResult({ ...details, mediaType: "movie" }) as AiMediaCard;
+  }
+
+  const details = mapTvDetails(await tmdb.getTvShow({ tvId: tmdbId }), media);
+  return cardFromResult({
+    ...details,
+    mediaType: "tv",
+    firstAirDate: details.firstAirDate,
+  }) as AiMediaCard;
+};
+
+const executeSearch = async (raw: unknown): Promise<AiToolResult> => {
+  const args = searchSchema.parse(raw);
+  const tmdb = new TheMovieDb();
+  const response = await tmdb.searchMulti({ query: args.query, page: 1 });
+  const media = await Media.getRelatedMedia(
+    response.results.map((item) => item.id)
+  );
+  const cards = mapSearchResults(response.results, media)
+    .map(cardFromResult)
+    .filter((card): card is AiMediaCard => !!card)
+    .slice(0, args.limit);
+
+  return { content: JSON.stringify({ results: summarizeCards(cards) }), cards };
+};
+
+const executeGetTitle = async (raw: unknown): Promise<AiToolResult> => {
+  const args = titleSchema.parse(raw);
+  const card = await getDetailsCard(args.media_type, args.tmdb_id);
+  return {
+    content: JSON.stringify({ result: summarizeCards([card])[0] }),
+    cards: [card],
+  };
+};
+
+const executeAvailable = async (raw: unknown): Promise<AiToolResult> => {
+  const args = availableSchema.parse(raw);
+  const repository = getRepository(Media);
+  const candidates = await repository.find({
+    where: {
+      status: In([MediaStatus.AVAILABLE, MediaStatus.PARTIALLY_AVAILABLE]),
+      ...(args.media_type === "either"
+        ? {}
+        : {
+            mediaType:
+              args.media_type === "movie" ? MediaType.MOVIE : MediaType.TV,
+          }),
+    },
+    order: { mediaAddedAt: "DESC", updatedAt: "DESC" },
+    take: Math.min(16, Math.max(args.limit * 2, 8)),
+  });
+
+  const details: Array<AiMediaCard | undefined> = [];
+  for (let index = 0; index < candidates.length; index += 4) {
+    details.push(
+      ...(await Promise.all(
+        candidates.slice(index, index + 4).map((media) =>
+          getDetailsCard(
+            media.mediaType === MediaType.MOVIE ? "movie" : "tv",
+            media.tmdbId
+          ).catch(() => undefined)
+        )
+      ))
+    );
+  }
+  const genre = args.genre?.toLowerCase();
+  const cards = details
+    .filter((card): card is AiMediaCard => !!card)
+    .filter((card) => (card.voteAverage ?? 0) >= args.min_rating)
+    .filter(
+      (card) =>
+        !genre ||
+        card.genres?.some((name) => name.toLowerCase().includes(genre))
+    )
+    .filter(
+      (card) =>
+        !args.max_runtime_minutes ||
+        !card.runtimeMinutes ||
+        card.runtimeMinutes <= args.max_runtime_minutes
+    )
+    .slice(0, args.limit);
+
+  return {
+    content: JSON.stringify({
+      confirmedAvailable: true,
+      notExhaustive: true,
+      note: genre
+        ? "Genre is a preference hint; verify fit from metadata."
+        : undefined,
+      results: summarizeCards(cards),
+    }),
+    cards,
+  };
+};
+
+const executeMyRequests = async (
+  raw: unknown,
+  user: User
+): Promise<AiToolResult> => {
+  const args = z
+    .object({ limit: z.number().int().min(1).max(10).default(5) })
+    .parse(raw);
+  const requests = await getRepository(MediaRequest).find({
+    where: { requestedBy: { id: user.id } },
+    relations: { media: true, seasons: true },
+    order: { createdAt: "DESC" },
+    take: args.limit,
+  });
+  const status = (value: MediaRequestStatus) =>
+    MediaRequestStatus[value]?.toLowerCase();
+  const cards = (
+    await Promise.all(
+      requests.map((request) =>
+        getDetailsCard(
+          request.type === MediaType.MOVIE ? "movie" : "tv",
+          request.media.tmdbId
+        ).catch(() => undefined)
+      )
+    )
+  ).filter((card): card is AiMediaCard => !!card);
+  return {
+    content: JSON.stringify({
+      results: requests.map((request) => ({
+        requestId: request.id,
+        mediaType: request.type,
+        tmdbId: request.media.tmdbId,
+        requestStatus: status(request.status),
+        mediaStatus: statusName(
+          request.is4k ? request.media.status4k : request.media.status
+        ),
+        seasons: request.seasons?.map((season) => season.seasonNumber),
+        createdAt: request.createdAt,
+      })),
+    }),
+    cards,
+  };
+};
+
+const executeDownloads = async (user: User): Promise<AiToolResult> => {
+  if (!user.hasPermission(Permission.MANAGE_REQUESTS)) {
+    return {
+      content: JSON.stringify({
+        refused: true,
+        reason: "You do not have permission to view the server download queue.",
+      }),
+    };
+  }
+  const downloads = downloadTracker.getAllDownloads();
+  const compact = (items: typeof downloads.movies) =>
+    items.slice(0, 12).map((item) => ({
+      title: item.title,
+      mediaType: item.mediaType,
+      status: item.status,
+      sizeBytes: item.size,
+      remainingBytes: item.sizeLeft,
+      timeLeft: item.timeLeft,
+      estimatedCompletionTime: item.estimatedCompletionTime,
+      episode: item.episode
+        ? {
+            season: item.episode.seasonNumber,
+            episode: item.episode.episodeNumber,
+          }
+        : undefined,
+    }));
+  return {
+    content: JSON.stringify({
+      movies: compact(downloads.movies),
+      tv: compact(downloads.tv),
+    }),
+  };
+};
+
+const executePrepareRequest = async (
+  raw: unknown,
+  user: User
+): Promise<AiToolResult> => {
+  const args = requestSchema.parse(raw);
+  const card = await getDetailsCard(args.media_type, args.tmdb_id);
+  if (card.status === "available" || card.status === "partial") {
+    return {
+      content: JSON.stringify({
+        refused: true,
+        reason: "This title is already available.",
+        title: card.title,
+      }),
+      cards: [card],
+    };
+  }
+
+  const seasons = args.media_type === "tv" ? args.seasons ?? [1] : undefined;
+  let selectedEpisodeCount: number | undefined;
+  if (args.media_type === "tv") {
+    const show = await new TheMovieDb().getTvShow({ tvId: args.tmdb_id });
+    const selected = new Set(seasons);
+    const matchedSeasons = show.seasons.filter((season) =>
+      selected.has(season.season_number)
+    );
+    if (matchedSeasons.length === selected.size) {
+      selectedEpisodeCount = matchedSeasons.reduce(
+        (total, season) => total + season.episode_count,
+        0
+      );
+    }
+  }
+  const policy = evaluateAiRequestPolicy({
+    mediaType: args.media_type,
+    voteAverage: card.voteAverage,
+    voteCount: card.voteCount,
+    seasons,
+    selectedEpisodeCount,
+  });
+  const policyNote = policy.autoApprovalEligible
+    ? "Eligible for normal auto-approval; your Chanflix permissions still apply."
+    : `Will require approval: ${policy.reasons.join(", ")}.`;
+  const { token, expiresAt } = createRequestConfirmation({
+    userId: user.id,
+    mediaType: args.media_type,
+    tmdbId: args.tmdb_id,
+    seasons,
+    forcePending: !policy.autoApprovalEligible,
+  });
+  card.request = {
+    token,
+    label:
+      args.media_type === "tv"
+        ? `Request season${seasons?.length === 1 ? "" : "s"} ${seasons?.join(
+            ", "
+          )}`
+        : "Request movie",
+    expiresAt: new Date(expiresAt).toISOString(),
+    note: policyNote,
+  };
+  return {
+    content: JSON.stringify({
+      prepared: true,
+      title: card.title,
+      mediaType: card.mediaType,
+      seasons,
+      requiresExplicitUserConfirmation: true,
+      autoApprovalEligible: policy.autoApprovalEligible,
+      approvalPolicy: policyNote,
+      expiresInSeconds: REQUEST_CONFIRMATION_TTL_MS / 1000,
+    }),
+    cards: [card],
+  };
+};
+
+export const createRequestConfirmation = (
+  request: Omit<PendingAiRequest, "expiresAt">,
+  now = Date.now()
+) => {
+  pruneRequestConfirmations(now);
+  for (const [existingToken, pending] of pendingRequests) {
+    if (pending.userId === request.userId)
+      pendingRequests.delete(existingToken);
+  }
+  while (pendingRequests.size >= 100) {
+    const oldest = pendingRequests.keys().next().value as string | undefined;
+    if (!oldest) break;
+    pendingRequests.delete(oldest);
+  }
+  const token = randomBytes(24).toString("base64url");
+  const expiresAt = now + REQUEST_CONFIRMATION_TTL_MS;
+  pendingRequests.set(token, {
+    ...request,
+    expiresAt,
+  });
+  return { token, expiresAt };
+};
+
+export const executeAiTool = async (
+  call: AiToolCall,
+  user: User
+): Promise<AiToolResult> => {
+  let raw: unknown;
+  try {
+    raw = parseArguments(call.arguments);
+    switch (call.name) {
+      case "search_titles":
+        return await executeSearch(raw);
+      case "get_title":
+        return await executeGetTitle(raw);
+      case "list_available_media":
+        return await executeAvailable(raw);
+      case "find_something_to_watch": {
+        const candidate = z.record(z.unknown()).parse(raw);
+        return await executeAvailable({
+          ...candidate,
+          limit: Math.min(Number(candidate.limit ?? 3), 3),
+        });
+      }
+      case "get_my_requests":
+        return await executeMyRequests(raw, user);
+      case "get_download_status":
+        return await executeDownloads(user);
+      case "prepare_request":
+        return await executePrepareRequest(raw, user);
+      default:
+        return {
+          content: JSON.stringify({ refused: true, reason: "Unknown tool." }),
+        };
+    }
+  } catch (error) {
+    const message =
+      error instanceof z.ZodError
+        ? "Tool arguments did not match the allowed schema."
+        : "Tool data is currently unavailable.";
+    if (!(error instanceof z.ZodError)) {
+      logger.warn("AI tool execution failed", {
+        label: "AI Chat",
+        userId: user.id,
+        tool: call.name,
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+    return { content: JSON.stringify({ error: message }) };
+  }
+};
+
+export const consumeRequestConfirmation = (
+  token: string,
+  userId: number,
+  now = Date.now()
+): PendingAiRequest | undefined => {
+  const pending = pendingRequests.get(token);
+  if (!pending || pending.userId !== userId) return;
+  pendingRequests.delete(token);
+  if (pending.expiresAt < now) return;
+  return pending;
+};
+
+export const pruneRequestConfirmations = (now = Date.now()) => {
+  for (const [token, pending] of pendingRequests) {
+    if (pending.expiresAt < now) pendingRequests.delete(token);
+  }
+};

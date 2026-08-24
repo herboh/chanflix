@@ -6869,6 +6869,37 @@ paths:
           description: Request or concurrency limit reached
         '503':
           description: AI chat is unavailable or not configured
+  /chat/request:
+    post:
+      summary: Confirm an AI-prepared media request
+      description: Consumes a short-lived, single-use confirmation bound to the authenticated user and submits it through normal Chanflix permissions and quotas.
+      tags:
+        - ai
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                token:
+                  type: string
+                  minLength: 32
+                  maxLength: 32
+              required:
+                - token
+      responses:
+        '201':
+          description: Request submitted
+        '400':
+          description: Request invalid or rejected by Chanflix policy
+        '403':
+          description: Authenticated browser session required
+        '410':
+          description: Confirmation expired or already used
+        '429':
+          description: Request confirmation rate limit reached
   /board:
     get:
       summary: Get board posts

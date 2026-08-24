@@ -1,9 +1,12 @@
+import CachedImage from "@app/components/Common/CachedImage";
 import {
   ArrowUpIcon,
   ClipboardDocumentIcon,
+  FilmIcon,
   StopIcon,
   TrashIcon,
 } from "@heroicons/react/24/outline";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
@@ -13,6 +16,22 @@ interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
+  cards?: MediaCardData[];
+}
+
+interface MediaCardData {
+  kind: "media";
+  mediaType: "movie" | "tv";
+  tmdbId: number;
+  title: string;
+  year?: string;
+  overview?: string;
+  posterPath?: string;
+  voteAverage?: number;
+  voteCount?: number;
+  status: "available" | "partial" | "processing" | "pending" | "unknown";
+  href: string;
+  request?: { token: string; label: string; expiresAt: string; note: string };
 }
 
 interface StreamPayload {
@@ -21,6 +40,7 @@ interface StreamPayload {
   finishReason?: string;
   code?: string;
   message?: string;
+  cards?: MediaCardData[];
 }
 
 const STORAGE_KEY = "chanflix.ai.chat.v1";
@@ -48,14 +68,45 @@ const restoreMessages = (): ChatMessage[] => {
       return [];
     }
 
-    const messages = stored.filter(
-      (message): message is ChatMessage =>
-        !!message &&
-        typeof message.id === "string" &&
-        (message.role === "user" || message.role === "assistant") &&
-        typeof message.content === "string" &&
-        !!message.content.trim()
-    );
+    const messages = stored
+      .filter(
+        (message): message is ChatMessage =>
+          !!message &&
+          typeof message.id === "string" &&
+          (message.role === "user" || message.role === "assistant") &&
+          typeof message.content === "string" &&
+          !!message.content.trim()
+      )
+      .map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        cards: Array.isArray(message.cards)
+          ? message.cards
+              .filter(
+                (card) =>
+                  card &&
+                  card.kind === "media" &&
+                  (card.mediaType === "movie" || card.mediaType === "tv") &&
+                  Number.isInteger(card.tmdbId) &&
+                  card.tmdbId > 0 &&
+                  typeof card.title === "string"
+              )
+              .slice(0, 8)
+              .map((card) => ({
+                ...card,
+                href: `/${card.mediaType}/${card.tmdbId}`,
+                request:
+                  card.request &&
+                  typeof card.request.token === "string" &&
+                  typeof card.request.label === "string" &&
+                  typeof card.request.expiresAt === "string" &&
+                  typeof card.request.note === "string"
+                    ? card.request
+                    : undefined,
+              }))
+          : undefined,
+      }));
 
     return messages.length % 2 === 0 ? messages : [];
   } catch (_error) {
@@ -66,6 +117,135 @@ const restoreMessages = (): ChatMessage[] => {
 const saveMessages = (messages: ChatMessage[]) => {
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
 };
+
+const MediaCard = ({ card }: { card: MediaCardData }) => {
+  const [requestState, setRequestState] = useState<
+    "idle" | "submitting" | "done" | "error"
+  >("idle");
+  const [requestMessage, setRequestMessage] = useState("");
+
+  const submitRequest = async () => {
+    if (!card.request || requestState !== "idle") return;
+    setRequestState("submitting");
+    try {
+      const csrfToken = getCsrfToken();
+      const response = await fetch("/api/v1/chat/request", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-XSRF-TOKEN": csrfToken } : {}),
+        },
+        body: JSON.stringify({ token: card.request.token }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error ?? "Request failed.");
+      setRequestMessage(body.message ?? "Request submitted.");
+      setRequestState("done");
+    } catch (error) {
+      setRequestMessage(
+        error instanceof Error ? error.message : "Request failed."
+      );
+      setRequestState("error");
+    }
+  };
+
+  const statusLabel =
+    card.status === "available"
+      ? "Ready to watch"
+      : card.status === "partial"
+      ? "Partially available"
+      : card.status === "processing"
+      ? "Downloading"
+      : card.status === "pending"
+      ? "Requested"
+      : "Not requested";
+
+  return (
+    <article className="flex min-h-[9rem] overflow-hidden border-2 border-gray-700 bg-gray-900">
+      <Link href={card.href}>
+        <a className="relative block w-24 shrink-0 bg-gray-800 sm:w-28">
+          {card.posterPath ? (
+            <CachedImage
+              src={`https://image.tmdb.org/t/p/w300_and_h450_face${card.posterPath}`}
+              alt=""
+              layout="fill"
+              objectFit="cover"
+            />
+          ) : (
+            <span className="flex h-full items-center justify-center text-gray-600">
+              <FilmIcon className="h-8 w-8" />
+            </span>
+          )}
+        </a>
+      </Link>
+      <div className="min-w-0 flex-1 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <Link href={card.href}>
+              <a className="font-bold text-gray-100 hover:text-indigo-400">
+                {card.title}
+                {card.year ? ` (${card.year})` : ""}
+              </a>
+            </Link>
+            <div className="mt-1 text-xs uppercase tracking-wide text-gray-500">
+              {card.mediaType === "movie" ? "Movie" : "Series"} · {statusLabel}
+              {typeof card.voteAverage === "number"
+                ? ` · ${card.voteAverage.toFixed(1)}/10`
+                : ""}
+            </div>
+          </div>
+        </div>
+        {card.overview && (
+          <p className="line-clamp-3 mt-2 text-sm text-gray-400">
+            {card.overview}
+          </p>
+        )}
+        {card.request && requestState !== "done" && (
+          <>
+            <p className="mt-2 text-xs text-gray-500">{card.request.note}</p>
+            <button
+              type="button"
+              onClick={submitRequest}
+              disabled={
+                requestState === "submitting" || requestState === "error"
+              }
+              className="mt-3 border border-indigo-500 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-indigo-400 hover:bg-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {requestState === "submitting"
+                ? "Submitting…"
+                : card.request.label}
+            </button>
+          </>
+        )}
+        {requestMessage && (
+          <p
+            className={`mt-2 text-xs ${
+              requestState === "error" ? "text-red-400" : "text-green-400"
+            }`}
+          >
+            {requestMessage}
+          </p>
+        )}
+      </div>
+    </article>
+  );
+};
+
+const MediaCards = ({ cards }: { cards?: MediaCardData[] }) =>
+  cards?.length ? (
+    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      {cards.map((card) => (
+        <MediaCard
+          key={`${card.mediaType}:${card.tmdbId}:${card.request?.token ?? ""}`}
+          card={card}
+        />
+      ))}
+    </div>
+  ) : null;
 
 const Markdown = ({ content }: { content: string }) => (
   <ReactMarkdown
@@ -101,6 +281,7 @@ const Message = ({ message }: { message: ChatMessage }) => {
   return (
     <article className="group max-w-3xl border-l-2 border-gray-600 bg-gray-900 px-4 py-3">
       <Markdown content={message.content} />
+      <MediaCards cards={message.cards} />
       <button
         type="button"
         onClick={copy}
@@ -119,6 +300,7 @@ const AiChat = () => {
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingAnswer, setStreamingAnswer] = useState("");
+  const [streamingCards, setStreamingCards] = useState<MediaCardData[]>([]);
   const [reasoning, setReasoning] = useState("");
   const [phase, setPhase] = useState<"connecting" | "thinking" | "answering">(
     "connecting"
@@ -135,6 +317,7 @@ const AiChat = () => {
   const reasoningBufferRef = useRef("");
   const frameRef = useRef<number>();
   const hasAnswerRef = useRef(false);
+  const cardsRef = useRef<MediaCardData[]>([]);
 
   useEffect(() => {
     setMessages(restoreMessages());
@@ -201,6 +384,29 @@ const AiChat = () => {
         answerTextRef.current += payload.delta;
         answerBufferRef.current += payload.delta;
         scheduleFlush();
+        return;
+      }
+
+      if (eventName === "cards" && Array.isArray(payload.cards)) {
+        const cards = payload.cards.filter(
+          (card) =>
+            card &&
+            card.kind === "media" &&
+            (card.mediaType === "movie" || card.mediaType === "tv") &&
+            typeof card.tmdbId === "number" &&
+            typeof card.title === "string"
+        );
+        const merged = new Map(
+          cardsRef.current.map((card) => [
+            `${card.mediaType}:${card.tmdbId}`,
+            card,
+          ])
+        );
+        cards.forEach((card) => {
+          merged.set(`${card.mediaType}:${card.tmdbId}`, card);
+        });
+        cardsRef.current = Array.from(merged.values()).slice(0, 8);
+        setStreamingCards(cardsRef.current);
       }
     },
     [scheduleFlush]
@@ -214,9 +420,11 @@ const AiChat = () => {
       answerBufferRef.current = "";
       reasoningBufferRef.current = "";
       hasAnswerRef.current = false;
+      cardsRef.current = [];
       followStreamRef.current = true;
       setStreaming(true);
       setStreamingAnswer("");
+      setStreamingCards([]);
       setReasoning("");
       setError("");
       setPhase("connecting");
@@ -314,7 +522,12 @@ const AiChat = () => {
 
         const completed = [
           ...requestMessages,
-          { id: createId(), role: "assistant" as const, content: answer },
+          {
+            id: createId(),
+            role: "assistant" as const,
+            content: answer,
+            cards: cardsRef.current.length ? cardsRef.current : undefined,
+          },
         ];
         if (mountedRef.current) {
           setMessages(completed);
@@ -337,6 +550,7 @@ const AiChat = () => {
           setWaking(false);
           setReasoning("");
           setStreamingAnswer("");
+          setStreamingCards([]);
         }
         controllerRef.current = undefined;
       }
@@ -382,6 +596,7 @@ const AiChat = () => {
     setError("");
     setReasoning("");
     setStreamingAnswer("");
+    setStreamingCards([]);
     composerRef.current?.focus();
   };
 
@@ -463,6 +678,7 @@ const AiChat = () => {
               </div>
             )}
             {streamingAnswer && <Markdown content={streamingAnswer} />}
+            <MediaCards cards={streamingCards} />
           </article>
         )}
 

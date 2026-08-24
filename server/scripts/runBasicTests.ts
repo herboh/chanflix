@@ -35,6 +35,11 @@ import {
   validateAiChatMessages,
 } from '@server/lib/aiChat';
 import {
+  consumeRequestConfirmation,
+  createRequestConfirmation,
+  evaluateAiRequestPolicy,
+} from '@server/lib/aiAgent';
+import {
   defaultQualityTriggers,
   evaluateQualityTriggers,
   parseQualityTriggers,
@@ -185,6 +190,32 @@ const tests: TestCase[] = [
         ),
         [{ reasoning: 'legacy' }]
       );
+
+      const toolParser = new AiChatSseParser();
+      assert.deepEqual(
+        toolParser.push(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"search_titles","arguments":"{\\"query\\":"}}]}}]}\n\n'
+        ),
+        [
+          {
+            toolCall: {
+              index: 0,
+              id: 'call_1',
+              name: 'search_titles',
+              arguments: '{"query":',
+            },
+          },
+        ]
+      );
+      assert.deepEqual(
+        toolParser.push(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"Heat\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n'
+        ),
+        [
+          { toolCall: { index: 0, arguments: '"Heat"}' } },
+          { finishReason: 'tool_calls' },
+        ]
+      );
     },
   },
   {
@@ -209,6 +240,93 @@ const tests: TestCase[] = [
       releaseTwo?.();
       releaseThree?.();
       assert.equal(gate.activeCount, 0);
+    },
+  },
+  {
+    name: 'AI request confirmations are user-bound and single-use',
+    run: () => {
+      const now = 1_000;
+      const confirmation = createRequestConfirmation(
+        {
+          userId: 7,
+          mediaType: 'movie',
+          tmdbId: 949,
+          forcePending: false,
+        },
+        now
+      );
+
+      assert.match(confirmation.token, /^[A-Za-z0-9_-]{32}$/);
+      assert.equal(
+        consumeRequestConfirmation(confirmation.token, 8, now),
+        undefined
+      );
+      assert.deepEqual(consumeRequestConfirmation(confirmation.token, 7, now), {
+        userId: 7,
+        mediaType: 'movie',
+        tmdbId: 949,
+        forcePending: false,
+        expiresAt: confirmation.expiresAt,
+      });
+      assert.equal(
+        consumeRequestConfirmation(confirmation.token, 7, now),
+        undefined
+      );
+
+      const expired = createRequestConfirmation(
+        {
+          userId: 7,
+          mediaType: 'tv',
+          tmdbId: 1399,
+          seasons: [1],
+          forcePending: true,
+        },
+        now
+      );
+      assert.equal(
+        consumeRequestConfirmation(expired.token, 7, expired.expiresAt + 1),
+        undefined
+      );
+    },
+  },
+  {
+    name: 'AI request policy is deterministic and conservative for series',
+    run: () => {
+      const config = {
+        minRating: 6.5,
+        minVotes: 250,
+        maxAutoApprovedTvSeasons: 1,
+        maxAutoApprovedTvEpisodes: 16,
+      };
+      assert.deepEqual(
+        evaluateAiRequestPolicy(
+          { mediaType: 'movie', voteAverage: 7.4, voteCount: 500 },
+          config
+        ),
+        { autoApprovalEligible: true, reasons: [] }
+      );
+      assert.equal(
+        evaluateAiRequestPolicy(
+          { mediaType: 'movie', voteAverage: 5.9, voteCount: 4_000 },
+          config
+        ).autoApprovalEligible,
+        false
+      );
+      const oversized = evaluateAiRequestPolicy(
+        {
+          mediaType: 'tv',
+          voteAverage: 8.2,
+          voteCount: 4_000,
+          seasons: [1, 2],
+          selectedEpisodeCount: 24,
+        },
+        config
+      );
+      assert.equal(oversized.autoApprovalEligible, false);
+      assert.deepEqual(oversized.reasons, [
+        'more than 1 season',
+        'more than 16 episodes',
+      ]);
     },
   },
   {
