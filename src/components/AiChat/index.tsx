@@ -8,11 +8,11 @@ import {
   ArrowUpIcon,
   ClipboardDocumentIcon,
   FilmIcon,
-  HandThumbDownIcon,
   HandThumbUpIcon,
   PlusCircleIcon,
   StopIcon,
   TrashIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import {
   BellIcon,
@@ -48,6 +48,7 @@ interface ChatMessage {
 }
 
 type AiFeedbackReason =
+  | "flagged"
   | "wrong_tool"
   | "wrong_entity"
   | "missing_tool"
@@ -251,20 +252,6 @@ const getCsrfToken = (): string | undefined => {
     : undefined;
 };
 
-const FEEDBACK_REASONS: Array<{
-  value: AiFeedbackReason;
-  label: string;
-}> = [
-  { value: "wrong_tool", label: "Wrong tool" },
-  { value: "wrong_entity", label: "Wrong title/person" },
-  { value: "missing_tool", label: "Should have used a tool" },
-  { value: "unsupported_claim", label: "Unsupported claim" },
-  { value: "recommendation_or_cards", label: "Recommendations/cards" },
-  { value: "request_or_safety", label: "Request or safety behavior" },
-  { value: "formatting", label: "Formatting or verbosity" },
-  { value: "other", label: "Other" },
-];
-
 const restoreMessages = (): ChatMessage[] => {
   try {
     const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "[]");
@@ -301,7 +288,17 @@ const restoreMessages = (): ChatMessage[] => {
                 rating: message.feedback.rating,
                 reasons: message.feedback.reasons
                   .filter((reason): reason is AiFeedbackReason =>
-                    FEEDBACK_REASONS.some((item) => item.value === reason)
+                    [
+                      "flagged",
+                      "wrong_tool",
+                      "wrong_entity",
+                      "missing_tool",
+                      "unsupported_claim",
+                      "recommendation_or_cards",
+                      "request_or_safety",
+                      "formatting",
+                      "other",
+                    ].includes(reason)
                   )
                   .slice(0, 4),
                 comment:
@@ -721,13 +718,6 @@ const Message = ({
   ) => Promise<void>;
 }) => {
   const [copied, setCopied] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackReasons, setFeedbackReasons] = useState<AiFeedbackReason[]>(
-    message.feedback?.reasons ?? []
-  );
-  const [feedbackComment, setFeedbackComment] = useState(
-    message.feedback?.comment ?? ""
-  );
   const [feedbackState, setFeedbackState] = useState<
     "idle" | "saving" | "error"
   >("idle");
@@ -745,7 +735,6 @@ const Message = ({
     setFeedbackError("");
     try {
       await onFeedback(message.id, message.traceId, feedback);
-      setFeedbackOpen(false);
       setFeedbackState("idle");
     } catch (error) {
       setFeedbackState("error");
@@ -787,7 +776,7 @@ const Message = ({
     <article className="group max-w-3xl border-l-2 border-gray-600 bg-gray-900 px-4 py-3">
       <Markdown content={message.content} />
       <MediaCards cards={message.cards} onPrepareAgain={onPrepareAgain} />
-      <div className="mt-2 flex items-center gap-3 text-xs uppercase tracking-wide text-gray-500 opacity-100 sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100">
+      <div className="mt-2 flex items-center gap-3 text-xs uppercase tracking-wide text-gray-500">
         <button
           type="button"
           onClick={copy}
@@ -815,17 +804,19 @@ const Message = ({
             </button>
             <button
               type="button"
-              onClick={() => setFeedbackOpen((current) => !current)}
+              onClick={() =>
+                submitFeedback({ rating: "down", reasons: ["flagged"] })
+              }
               disabled={feedbackState === "saving"}
               className={
                 message.feedback?.rating === "down"
                   ? "text-red-400"
                   : "hover:text-red-400"
               }
-              aria-label="Unhelpful answer"
-              title="Unhelpful"
+              aria-label="Flag answer issue"
+              title="Flag an issue"
             >
-              <HandThumbDownIcon className="h-4 w-4" />
+              <XMarkIcon className="h-4 w-4" />
             </button>
             {message.feedback && (
               <span className="normal-case text-gray-600">Feedback saved</span>
@@ -833,67 +824,8 @@ const Message = ({
           </>
         )}
       </div>
-      {feedbackOpen && message.traceId && onFeedback && (
-        <div className="mt-3 border border-gray-700 bg-gray-800 p-3 text-xs text-gray-300">
-          <p className="mb-2 font-bold uppercase tracking-wide text-gray-400">
-            What went wrong?
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {FEEDBACK_REASONS.map((reason) => (
-              <label key={reason.value} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={feedbackReasons.includes(reason.value)}
-                  onChange={(event) => {
-                    setFeedbackReasons((current) =>
-                      event.target.checked
-                        ? [...current, reason.value].slice(0, 4)
-                        : current.filter((item) => item !== reason.value)
-                    );
-                  }}
-                  className="border-gray-600 bg-gray-900 text-indigo-500 focus:ring-indigo-500"
-                />
-                {reason.label}
-              </label>
-            ))}
-          </div>
-          <textarea
-            value={feedbackComment}
-            maxLength={1_000}
-            rows={2}
-            onChange={(event) => setFeedbackComment(event.target.value)}
-            placeholder="Optional note"
-            className="mt-3 w-full border border-gray-700 bg-gray-900 p-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-indigo-500 focus:ring-0"
-          />
-          <div className="mt-2 flex items-center gap-3">
-            <button
-              type="button"
-              disabled={!feedbackReasons.length || feedbackState === "saving"}
-              onClick={() =>
-                submitFeedback({
-                  rating: "down",
-                  reasons: feedbackReasons,
-                  ...(feedbackComment.trim()
-                    ? { comment: feedbackComment.trim() }
-                    : {}),
-                })
-              }
-              className="border border-red-700 px-3 py-1 font-bold uppercase tracking-wide text-red-300 hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {feedbackState === "saving" ? "Saving…" : "Save feedback"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFeedbackOpen(false)}
-              className="text-gray-500 hover:text-gray-300"
-            >
-              Cancel
-            </button>
-          </div>
-          {feedbackError && (
-            <p className="mt-2 text-red-400">{feedbackError}</p>
-          )}
-        </div>
+      {feedbackError && (
+        <p className="mt-2 text-xs text-red-400">{feedbackError}</p>
       )}
     </article>
   );
@@ -1488,7 +1420,7 @@ const AiChat = () => {
             &gt; Qwen
           </h1>
           <p className="text-xs uppercase tracking-wide text-gray-500">
-            Local AI · 30-day redacted evaluation traces
+            Local AI · 30-day privacy-filtered evaluation traces
           </p>
         </div>
         <button
@@ -1515,8 +1447,9 @@ const AiChat = () => {
                 Ask anything
               </p>
               <p className="mt-1 text-sm text-gray-500">
-                Browser history is session-only. Redacted prompts, answers, and
-                tool traces are retained for 30 days to improve Qwen.
+                Browser history is session-only. Privacy-filtered prompts,
+                answers, and tool traces are retained for 30 days to improve
+                Qwen.
               </p>
               <div className="mt-7 overflow-hidden opacity-75">
                 <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.22em] text-gray-700">

@@ -50,6 +50,7 @@ import {
   runAiAgent,
   type AiRunModelConfig,
 } from '@server/lib/aiRunner';
+import { AI_SYSTEM_PROMPT_BASELINE_2026_08_24 } from '@server/lib/aiSystemPrompts';
 import { scoreAiEvalCase, type AiEvalCase } from '@server/lib/aiEval';
 import {
   AI_AGENT_TOOLS,
@@ -468,8 +469,23 @@ const tests: TestCase[] = [
       assert.equal(scores.routing, 1);
       assert.equal(scores.arguments, 1);
       assert.equal(scores.grounding, 1);
+      const unavailableScores = scoreAiEvalCase(testCase, {
+        ...result.trace,
+        finalAnswer: '',
+        errorCode: 'unavailable',
+      });
+      assert.equal(unavailableScores.hardPass, 0);
+      assert.deepEqual(unavailableScores.hardFailures, [
+        'trace_error:unavailable',
+        'missing_final_answer',
+      ]);
       assert.match(AI_SYSTEM_MESSAGE, /Recently added to the server/u);
       assert.match(AI_SYSTEM_MESSAGE, /negated request/u);
+      assert.equal(
+        fingerprintAiValue(AI_SYSTEM_PROMPT_BASELINE_2026_08_24),
+        'b6d5004cf928e027ccd92bfd1a44cb498b323acbeba786f6b2e48f6b1fe074dc'
+      );
+      assert.notEqual(AI_SYSTEM_MESSAGE, AI_SYSTEM_PROMPT_BASELINE_2026_08_24);
     },
   },
   {
@@ -672,7 +688,7 @@ const tests: TestCase[] = [
         'request_media',
         'search_web',
       ]);
-      assert.ok(AI_AGENT_TOOLS.every((tool) => tool.function.strict === true));
+      assert.ok(AI_AGENT_TOOLS.every((tool) => tool.function.strict === false));
 
       const director = {
         job: 'Director',

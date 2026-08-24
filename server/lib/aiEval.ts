@@ -210,6 +210,8 @@ export const scoreAiEvalCase = (
     !!trace.finalAnswer && !trace.errorCode && trace.finishReason !== "unknown"
   );
   const hardFailures = [
+    ...(trace.errorCode ? [`trace_error:${trace.errorCode}`] : []),
+    ...(!trace.finalAnswer.trim() ? ["missing_final_answer"] : []),
     ...fixtureEscapes.map((tool) => `fixture_escape:${tool}`),
     ...invalidArguments.map((tool) => `invalid_arguments:${tool}`),
     ...calledForbidden.map((tool) => `forbidden_tool:${tool}`),

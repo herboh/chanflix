@@ -328,7 +328,10 @@ const tool = (
   function: {
     name,
     description,
-    strict: true,
+    // Chanflix intentionally uses optional fields. vLLM strict mode requires
+    // every property to be required (nullable when optional), which would
+    // change the proven Qwen call shape. Zod still validates every call here.
+    strict: false,
     parameters: {
       type: "object",
       additionalProperties: false,

@@ -5,6 +5,7 @@ import { redactAiTrace, type AiTraceV1 } from "@server/lib/aiTrace";
 import { LessThan } from "typeorm";
 
 export const AI_FEEDBACK_REASONS = [
+  "flagged",
   "wrong_tool",
   "wrong_entity",
   "missing_tool",
