@@ -86,7 +86,13 @@ const Layout = ({ children }: LayoutProps) => {
             >
               <ArrowLeftIcon className="w-7" />
             </button>
-            <SearchInput />
+            {router.pathname === '/ai' ? (
+              <div className="flex-1 text-sm font-bold uppercase tracking-wider text-gruvbox-green-bright">
+                &gt; AI Chat
+              </div>
+            ) : (
+              <SearchInput />
+            )}
             <div className="flex items-center">
               <UserDropdown />
             </div>
