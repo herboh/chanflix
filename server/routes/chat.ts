@@ -7,13 +7,14 @@ import {
   RequestPermissionError,
 } from "@server/entity/MediaRequest";
 import {
-  AI_AGENT_MAX_CARDS,
   AI_AGENT_MAX_TOOL_CALLS,
   AI_AGENT_MAX_TOOL_ROUNDS,
   AI_AGENT_TOOLS,
   consumeRequestConfirmation,
   executeAiTool,
+  finalizeAiMediaCards,
   pruneRequestConfirmations,
+  stageAiMediaCards,
   type AiMediaCard,
   type AiToolCall,
 } from "@server/lib/aiAgent";
@@ -54,13 +55,14 @@ Truth and tools:
 Tool routing:
 - For biography, birthday, age, identity, IMDb ID, or filmography questions about an actor, director, writer, or other film person, use lookup_person. Set available_only=true for "on Plex", "on the server", "do we have", or similar wording. Only use search_people/get_person_filmography to resolve an ambiguous result or when an exact person ID is already known.
 - For cast, director, writer, creator, or person/title relationship questions about a named movie or series, resolve the title with search_titles and then use get_title. Do not answer credit questions from memory.
-- When a user mentions Plex, the server, the library, availability, requests, or downloads, consult the corresponding local-data tool before answering—even if you think you know the answer.
+- Default to the full TMDB catalog for movie, series, person, credit, and filmography lookups. Local Chanflix/Plex data may annotate availability, but must not filter or prioritize results unless the user explicitly asks about Plex, this server, the local library, availability, requests, or downloads.
+- Only when the user explicitly mentions Plex, the server, the local library, availability, requests, or downloads, consult the corresponding local-data tool before answering—even if you think you know the answer.
 - For an explicit request such as "add", "get", "download", or "request" a title, call prepare_title_request directly with the title, year, and type the user supplied. It resolves exact matches and refuses ambiguity. Never silently choose a fuzzy candidate.
 - Use search_titles/get_title for IMDb-style title lookup and precise movie metadata. Returned IMDb IDs are identifiers, not evidence for facts absent from tool output.
 
 Presentation:
-- Concrete movie/series results must use canonical Chanflix cards. search_titles, get_title, lookup_person, get_person_filmography, get_plex_library_summary, list_available_media, find_something_to_watch, get_my_requests, prepare_title_request, and prepare_request display their returned titles automatically. If your chosen titles have not already been returned as cards, call display_titles before answering.
-- Never invent poster URLs, use Markdown images for title art, or manually imitate a card. Never list more than five titles.
+- Concrete movie/series results must use canonical Chanflix cards. Cards are buffered during research; only the most recent card-producing tool round is presented. After exploratory searches, call display_titles with the exact final selection before answering when necessary.
+- Never invent poster URLs, use Markdown images for title art, or manually imitate a card. Never list or display more than four titles.
 - Let cards carry poster, year, rating, availability, and link. Keep the prose focused on the answer and why the titles matter instead of repeating every card field.
 
 Recommendations:
@@ -365,7 +367,7 @@ chatRoutes.post(
           message: `${fitted.droppedMessages} older messages were trimmed to keep this answer reliable.`,
         });
       }
-      const sentCardKeys = new Set<string>();
+      let pendingCards: AiMediaCard[] = [];
       let totalToolCalls = 0;
       let totalCompletionTokens = 0;
       let latestPromptTokens = fitted.estimatedTokens;
@@ -532,6 +534,8 @@ chatRoutes.post(
                 "I could not produce a reliable answer. Try rephrasing that.",
             });
           }
+          const cards = finalizeAiMediaCards(pendingCards);
+          if (cards.length) writeEvent(res, "cards", { cards });
           finished = true;
           writeEvent(res, "meta", {
             model,
@@ -576,16 +580,10 @@ chatRoutes.post(
             content: result.content.slice(0, MAX_TOOL_RESULT_CHARS),
           });
           for (const card of result.cards ?? []) {
-            const key = `${card.mediaType}:${card.tmdbId}:${
-              card.request?.token ?? ""
-            }`;
-            if (!sentCardKeys.has(key) && cards.length < AI_AGENT_MAX_CARDS) {
-              sentCardKeys.add(key);
-              cards.push(card);
-            }
+            cards.push(card);
           }
         });
-        if (cards.length) writeEvent(res, "cards", { cards });
+        pendingCards = stageAiMediaCards(pendingCards, cards);
       }
 
       logger.info("AI chat generation completed", {

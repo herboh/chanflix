@@ -42,8 +42,10 @@ import {
   consumeRequestConfirmation,
   createRequestConfirmation,
   evaluateAiRequestPolicy,
+  finalizeAiMediaCards,
   rankAiMediaCards,
   resolveAiTitleMatch,
+  stageAiMediaCards,
 } from '@server/lib/aiAgent';
 import {
   defaultQualityTriggers,
@@ -275,6 +277,48 @@ const tests: TestCase[] = [
         ranked.map((item) => item.title),
         ['Heat', 'Heatwave', 'Other']
       );
+
+      const availabilityNeutral = rankAiMediaCards([
+        { ...card('Local obscurity', 10), status: 'available' as const },
+        { ...card('Catalog classic', 20_000), status: 'unknown' as const },
+      ]);
+      assert.deepEqual(
+        availabilityNeutral.map((item) => item.title),
+        ['Catalog classic', 'Local obscurity']
+      );
+
+      const availabilityRequested = rankAiMediaCards(
+        availabilityNeutral,
+        undefined,
+        { preferAvailable: true }
+      );
+      assert.deepEqual(
+        availabilityRequested.map((item) => item.title),
+        ['Local obscurity', 'Catalog classic']
+      );
+
+      const finalized = finalizeAiMediaCards([
+        card('One', 1),
+        card('Two', 2),
+        card('Three', 3),
+        card('Four', 4),
+        card('Five', 5),
+        { ...card('Five updated', 50), tmdbId: 5 },
+      ]);
+      assert.equal(finalized.length, 4);
+      assert.equal(finalized[0].title, 'Five updated');
+      assert.equal(
+        new Set(finalized.map((item) => item.tmdbId)).size,
+        finalized.length
+      );
+
+      const preliminary = [card('Wrong early result', 1)];
+      const finalRound = [card('Final result', 2)];
+      assert.deepEqual(
+        stageAiMediaCards(preliminary, finalRound).map((item) => item.title),
+        ['Final result']
+      );
+      assert.deepEqual(stageAiMediaCards(finalRound, []), finalRound);
     },
   },
   {

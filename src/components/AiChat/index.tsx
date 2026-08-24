@@ -1,14 +1,28 @@
+import RTAudFresh from "@app/assets/rt_aud_fresh.svg";
+import RTAudRotten from "@app/assets/rt_aud_rotten.svg";
+import RTFresh from "@app/assets/rt_fresh.svg";
+import RTRotten from "@app/assets/rt_rotten.svg";
+import ImdbLogo from "@app/assets/services/imdb.svg";
 import CachedImage from "@app/components/Common/CachedImage";
 import {
   ArrowUpIcon,
   ClipboardDocumentIcon,
   FilmIcon,
+  PlusCircleIcon,
   StopIcon,
   TrashIcon,
 } from "@heroicons/react/24/outline";
+import {
+  BellIcon,
+  CheckCircleIcon,
+  ClockIcon,
+} from "@heroicons/react/24/solid";
+import type { RTRating } from "@server/api/rating/rottentomatoes";
+import type { RatingResponse } from "@server/api/ratings";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import useSWR from "swr";
 
 type ChatRole = "user" | "assistant";
 
@@ -237,7 +251,7 @@ const restoreMessages = (): ChatMessage[] => {
                   card.tmdbId > 0 &&
                   typeof card.title === "string"
               )
-              .slice(0, 5)
+              .slice(0, 4)
               .map((card) => ({
                 ...card,
                 href: `/${card.mediaType}/${card.tmdbId}`,
@@ -263,11 +277,47 @@ const saveMessages = (messages: ChatMessage[]) => {
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
 };
 
+const RatingChip = ({
+  href,
+  icon,
+  label,
+  value,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) => (
+  <a
+    href={href}
+    target="_blank"
+    rel="noreferrer"
+    title={label}
+    className="inline-flex items-center gap-1 border border-gray-700 bg-gray-900 px-2 py-1 text-xs font-bold text-gray-200 transition hover:border-gray-500 hover:text-white"
+  >
+    <span className="flex h-4 w-4 items-center justify-center">{icon}</span>
+    <span>{value}</span>
+  </a>
+);
+
 const MediaCard = ({ card }: { card: MediaCardData }) => {
   const [requestState, setRequestState] = useState<
     "idle" | "submitting" | "done" | "error"
   >("idle");
   const [requestMessage, setRequestMessage] = useState("");
+  const ratingsEndpoint =
+    card.mediaType === "movie"
+      ? `/api/v1/movie/${card.tmdbId}/ratingscombined`
+      : `/api/v1/tv/${card.tmdbId}/ratings`;
+  const { data: ratings } = useSWR<RatingResponse | RTRating>(ratingsEndpoint);
+  const rtRating =
+    card.mediaType === "movie"
+      ? (ratings as RatingResponse | undefined)?.rt
+      : (ratings as RTRating | undefined);
+  const imdbRating =
+    card.mediaType === "movie"
+      ? (ratings as RatingResponse | undefined)?.imdb
+      : undefined;
 
   const submitRequest = async () => {
     if (!card.request || requestState !== "idle") return;
@@ -298,67 +348,142 @@ const MediaCard = ({ card }: { card: MediaCardData }) => {
     }
   };
 
-  const statusLabel =
-    card.status === "available"
-      ? "Ready to watch"
-      : card.status === "partial"
-      ? "Partially available"
-      : card.status === "processing"
-      ? "Downloading"
-      : card.status === "pending"
-      ? "Requested"
-      : "Not requested";
+  const effectiveStatus = requestState === "done" ? "pending" : card.status;
+  const status =
+    effectiveStatus === "available"
+      ? {
+          label: "On server",
+          border: "border-green-500",
+          badge: "border-green-400 bg-green-900 text-green-100",
+          icon: <CheckCircleIcon className="h-4 w-4" />,
+        }
+      : effectiveStatus === "partial"
+      ? {
+          label: "Partially on server",
+          border: "border-green-700",
+          badge: "border-green-500 bg-green-900 text-green-100",
+          icon: <CheckCircleIcon className="h-4 w-4" />,
+        }
+      : effectiveStatus === "processing"
+      ? {
+          label: "Downloading",
+          border: "border-orange-500",
+          badge: "border-orange-400 bg-orange-900 text-orange-100",
+          icon: <ClockIcon className="h-4 w-4" />,
+        }
+      : effectiveStatus === "pending"
+      ? {
+          label: "Requested",
+          border: "border-yellow-500",
+          badge: "border-yellow-400 bg-yellow-900 text-yellow-100",
+          icon: <BellIcon className="h-4 w-4" />,
+        }
+      : {
+          label: "Available to request",
+          border: "border-gray-600",
+          badge: "border-gray-500 bg-gray-900 text-gray-200",
+          icon: <PlusCircleIcon className="h-4 w-4" />,
+        };
 
   return (
-    <article className="flex min-h-[9rem] overflow-hidden border-2 border-gray-700 bg-gray-900">
-      <Link href={card.href}>
-        <a className="relative block w-24 shrink-0 bg-gray-800 sm:w-28">
-          {card.posterPath ? (
-            <CachedImage
-              src={`https://image.tmdb.org/t/p/w300_and_h450_face${card.posterPath}`}
-              alt=""
-              layout="fill"
-              objectFit="cover"
+    <article
+      className={`flex h-full min-w-0 flex-col overflow-hidden border-2 bg-gray-900 ${status.border}`}
+    >
+      <div className="relative aspect-[2/3] w-full overflow-hidden bg-gray-800">
+        <Link href={card.href}>
+          <a className="absolute inset-0 block">
+            {card.posterPath ? (
+              <CachedImage
+                src={`https://image.tmdb.org/t/p/w500_and_h750_face${card.posterPath}`}
+                alt={`${card.title} poster`}
+                layout="fill"
+                objectFit="cover"
+              />
+            ) : (
+              <span className="flex h-full items-center justify-center text-gray-600">
+                <FilmIcon className="h-12 w-12" />
+              </span>
+            )}
+          </a>
+        </Link>
+        <span
+          className={`absolute left-2 top-2 z-10 inline-flex items-center gap-1.5 border px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wide shadow-lg ${status.badge}`}
+        >
+          {status.icon}
+          {status.label}
+        </span>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col p-3">
+        <Link href={card.href}>
+          <a className="line-clamp-2 text-base font-bold leading-tight text-gray-100 hover:text-indigo-400">
+            {card.title}
+          </a>
+        </Link>
+        <div className="mt-1 text-xs uppercase tracking-wide text-gray-500">
+          {card.year ?? "Year unknown"} ·{" "}
+          {card.mediaType === "movie" ? "Movie" : "Series"}
+        </div>
+        <div className="mt-3 flex min-h-[1.75rem] flex-wrap gap-1.5">
+          {rtRating?.criticsScore ? (
+            <RatingChip
+              href={rtRating.url}
+              label="Rotten Tomatoes critics"
+              value={`${rtRating.criticsScore}%`}
+              icon={
+                rtRating.criticsRating === "Rotten" ? (
+                  <RTRotten className="h-4 w-4" />
+                ) : (
+                  <RTFresh className="h-4 w-4" />
+                )
+              }
             />
-          ) : (
-            <span className="flex h-full items-center justify-center text-gray-600">
-              <FilmIcon className="h-8 w-8" />
-            </span>
-          )}
-        </a>
-      </Link>
-      <div className="min-w-0 flex-1 p-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <Link href={card.href}>
-              <a className="font-bold text-gray-100 hover:text-indigo-400">
-                {card.title}
-                {card.year ? ` (${card.year})` : ""}
-              </a>
-            </Link>
-            <div className="mt-1 text-xs uppercase tracking-wide text-gray-500">
-              {card.mediaType === "movie" ? "Movie" : "Series"} · {statusLabel}
-              {typeof card.voteAverage === "number"
-                ? ` · ${card.voteAverage.toFixed(1)}/10`
-                : ""}
-            </div>
-          </div>
+          ) : null}
+          {rtRating?.audienceScore ? (
+            <RatingChip
+              href={rtRating.url}
+              label="Rotten Tomatoes audience"
+              value={`${rtRating.audienceScore}%`}
+              icon={
+                rtRating.audienceRating === "Spilled" ? (
+                  <RTAudRotten className="h-4 w-4" />
+                ) : (
+                  <RTAudFresh className="h-4 w-4" />
+                )
+              }
+            />
+          ) : null}
+          {imdbRating?.criticsScore ? (
+            <RatingChip
+              href={imdbRating.url}
+              label="IMDb user rating"
+              value={imdbRating.criticsScore.toFixed(1)}
+              icon={<ImdbLogo className="h-4 w-4" />}
+            />
+          ) : null}
+          {!rtRating && !imdbRating && typeof card.voteAverage === "number" ? (
+            <RatingChip
+              href={`https://www.themoviedb.org/${card.mediaType}/${card.tmdbId}`}
+              label="TMDB user rating"
+              value={`${Math.round(card.voteAverage * 10)}%`}
+              icon={<span className="text-[0.6rem] text-blue-300">TMDB</span>}
+            />
+          ) : null}
         </div>
         {card.overview && (
-          <p className="line-clamp-3 mt-2 text-sm text-gray-400">
+          <p className="line-clamp-3 mt-3 text-xs leading-relaxed text-gray-400">
             {card.overview}
           </p>
         )}
         {card.request && requestState !== "done" && (
           <>
-            <p className="mt-2 text-xs text-gray-500">{card.request.note}</p>
+            <p className="mt-3 text-xs text-gray-500">{card.request.note}</p>
             <button
               type="button"
               onClick={submitRequest}
               disabled={
                 requestState === "submitting" || requestState === "error"
               }
-              className="mt-3 border border-indigo-500 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-indigo-400 hover:bg-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-3 w-full border border-indigo-500 bg-indigo-900 px-3 py-2 text-xs font-bold uppercase tracking-wide text-indigo-200 hover:bg-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {requestState === "submitting"
                 ? "Submitting…"
@@ -375,6 +500,16 @@ const MediaCard = ({ card }: { card: MediaCardData }) => {
             {requestMessage}
           </p>
         )}
+        <Link href={card.href}>
+          <a className="mt-auto block pt-4 text-center text-xs font-bold uppercase tracking-wide text-gray-400 hover:text-indigo-400">
+            {effectiveStatus === "available" || effectiveStatus === "partial"
+              ? "Open to watch"
+              : effectiveStatus === "pending" ||
+                effectiveStatus === "processing"
+              ? "View status"
+              : "Open to request"}
+          </a>
+        </Link>
       </div>
     </article>
   );
@@ -382,7 +517,7 @@ const MediaCard = ({ card }: { card: MediaCardData }) => {
 
 const MediaCards = ({ cards }: { cards?: MediaCardData[] }) =>
   cards?.length ? (
-    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+    <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
       {cards.map((card) => (
         <MediaCard
           key={`${card.mediaType}:${card.tmdbId}:${card.request?.token ?? ""}`}
@@ -636,16 +771,11 @@ const AiChat = () => {
             typeof card.tmdbId === "number" &&
             typeof card.title === "string"
         );
-        const merged = new Map(
-          cardsRef.current.map((card) => [
-            `${card.mediaType}:${card.tmdbId}`,
-            card,
-          ])
-        );
+        const merged = new Map<string, MediaCardData>();
         cards.forEach((card) => {
           merged.set(`${card.mediaType}:${card.tmdbId}`, card);
         });
-        cardsRef.current = Array.from(merged.values()).slice(0, 5);
+        cardsRef.current = Array.from(merged.values()).slice(0, 4);
         setStreamingCards(cardsRef.current);
       }
     },

@@ -24,7 +24,7 @@ import { In } from "typeorm";
 import { z } from "zod";
 
 export const AI_AGENT_MAX_TOOL_ROUNDS = 4;
-export const AI_AGENT_MAX_CARDS = 5;
+export const AI_AGENT_MAX_CARDS = 4;
 export const AI_AGENT_MAX_TOOL_CALLS = 6;
 
 export type AiMediaType = "movie" | "tv";
@@ -498,7 +498,8 @@ export const resolveAiTitleMatch = (
 
 export const rankAiMediaCards = (
   cards: AiMediaCard[],
-  query?: string
+  query?: string,
+  options: { preferAvailable?: boolean } = {}
 ): AiMediaCard[] => {
   const normalizedQuery = query ? normalizedTitle(query) : undefined;
   return [...cards].sort((left, right) => {
@@ -507,6 +508,13 @@ export const rankAiMediaCards = (
       const rightExact = normalizedTitle(right.title) === normalizedQuery;
       if (leftExact !== rightExact) return leftExact ? -1 : 1;
     }
+    if (options.preferAvailable) {
+      const leftAvailable =
+        left.status === "available" || left.status === "partial";
+      const rightAvailable =
+        right.status === "available" || right.status === "partial";
+      if (leftAvailable !== rightAvailable) return leftAvailable ? -1 : 1;
+    }
     return (
       (right.voteCount ?? 0) - (left.voteCount ?? 0) ||
       (right.popularity ?? 0) - (left.popularity ?? 0) ||
@@ -514,6 +522,19 @@ export const rankAiMediaCards = (
     );
   });
 };
+
+export const finalizeAiMediaCards = (cards: AiMediaCard[]): AiMediaCard[] => {
+  const unique = new Map<string, AiMediaCard>();
+  for (const card of cards) {
+    unique.set(`${card.mediaType}:${card.tmdbId}`, card);
+  }
+  return rankAiMediaCards([...unique.values()]).slice(0, AI_AGENT_MAX_CARDS);
+};
+
+export const stageAiMediaCards = (
+  current: AiMediaCard[],
+  latestRound: AiMediaCard[]
+): AiMediaCard[] => (latestRound.length ? latestRound : current);
 
 const parseArguments = (raw: string): unknown => {
   if (raw.length > 4_000) throw new Error("Tool arguments are too large.");
@@ -669,7 +690,7 @@ const executePersonFilmography = async (
   const relatedMedia = await Media.getRelatedMedia(
     credits.map((item) => item.credit.id)
   );
-  const entries = credits
+  const filteredEntries = credits
     .map((item) => {
       const media = relatedMedia.find(
         (candidate) =>
@@ -703,18 +724,16 @@ const executePersonFilmography = async (
         !args.available_only ||
         entry.card.status === "available" ||
         entry.card.status === "partial"
-    )
-    .sort(
-      (left, right) =>
-        Number(
-          right.card.status === "available" || right.card.status === "partial"
-        ) -
-          Number(
-            left.card.status === "available" || left.card.status === "partial"
-          ) ||
-        (right.card.voteCount ?? 0) - (left.card.voteCount ?? 0) ||
-        (right.card.popularity ?? 0) - (left.card.popularity ?? 0)
-    )
+    );
+  const entryByCard = new Map(
+    filteredEntries.map((entry) => [entry.card, entry])
+  );
+  const entries = rankAiMediaCards(
+    filteredEntries.map((entry) => entry.card),
+    undefined,
+    { preferAvailable: args.available_only }
+  )
+    .map((card) => entryByCard.get(card) as (typeof filteredEntries)[number])
     .slice(0, args.limit);
   const cards = entries.map((entry) => entry.card);
 
